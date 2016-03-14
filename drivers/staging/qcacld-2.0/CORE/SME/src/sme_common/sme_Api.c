@@ -15888,7 +15888,6 @@ eHalStatus sme_ResetBssHotlist (tHalHandle hHal,
     return status;
 }
 
-
 /* ---------------------------------------------------------------------------
     \fn sme_SetSignificantChange
     \brief  SME API to set significant change
