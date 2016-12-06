@@ -17,6 +17,7 @@
  */
 
 #include <linux/atomic.h>
+#include <linux/err.h>
 #include <linux/file.h>
 #include <linux/freezer.h>
 #include <linux/fs.h>
