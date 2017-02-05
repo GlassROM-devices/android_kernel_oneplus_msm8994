@@ -395,7 +395,7 @@ static void ip6gre_err(struct sk_buff *skb, struct inet6_skb_parm *opt,
 
 	t = ip6gre_tunnel_lookup(skb->dev, &ipv6h->daddr, &ipv6h->saddr,
 				 key, greh->protocol);
-	if (!t)
+	if (t == NULL)
 		return;
 
 	switch (type) {
