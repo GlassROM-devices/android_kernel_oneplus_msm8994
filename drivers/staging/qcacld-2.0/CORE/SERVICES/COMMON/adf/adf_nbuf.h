@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2014, 2016-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2014, 2016 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -58,7 +58,6 @@
 #define NBUF_PKT_TRAC_MAX_STRING   12
 #define NBUF_PKT_TRAC_PROTO_STRING 4
 #define ADF_NBUF_PKT_ERROR         1
-#define ADF_NBUF_FWD_FLAG          1
 
 #define ADF_NBUF_TRAC_IPV4_OFFSET       14
 #define ADF_NBUF_TRAC_IPV4_HEADER_SIZE  20
@@ -80,7 +79,6 @@
 #define ADF_NBUF_TRAC_TCP_TYPE          6
 #define ADF_NBUF_TRAC_UDP_TYPE          17
 #define ADF_NBUF_TRAC_ICMPV6_TYPE       0x3a
-#define ADF_NBUF_TRAC_WAI_ETH_TYPE      0x88b4
 
 /* EAPOL Related MASK */
 #define EAPOL_PACKET_TYPE_OFFSET        15
@@ -182,57 +180,13 @@ struct mon_rx_status {
 #define ICMPV6_NA                     0x88
 #define ADF_NBUF_IPA_CHECK_MASK       0x80000000
 
-/**
- * adf_proto_type - protocol type
- * @ADF_PROTO_TYPE_DHCP - DHCP
- * @ADF_PROTO_TYPE_EAPOL - EAPOL
- * @ADF_PROTO_TYPE_ARP - ARP
- * @ADF_PROTO_TYPE_MGMT - MGMT
- * @ADF_PROTO_TYPE_EVENT - EVENT
- */
 enum adf_proto_type {
 	ADF_PROTO_TYPE_DHCP = 0,
 	ADF_PROTO_TYPE_EAPOL,
 	ADF_PROTO_TYPE_ARP,
-	ADF_PROTO_TYPE_MGMT,
-	ADF_PROTO_TYPE_EVENT,
 	ADF_PROTO_TYPE_MAX
 };
 
-/**
- * adf_proto_subtype - subtype of packet
- * @ADF_PROTO_EAPOL_M1 - EAPOL 1/4
- * @ADF_PROTO_EAPOL_M2 - EAPOL 2/4
- * @ADF_PROTO_EAPOL_M3 - EAPOL 3/4
- * @ADF_PROTO_EAPOL_M4 - EAPOL 4/4
- * @ADF_PROTO_DHCP_DISCOVER - discover
- * @ADF_PROTO_DHCP_REQUEST - request
- * @ADF_PROTO_DHCP_OFFER - offer
- * @ADF_PROTO_DHCP_ACK - ACK
- * @ADF_PROTO_DHCP_NACK - NACK
- * @ADF_PROTO_DHCP_RELEASE - release
- * @ADF_PROTO_DHCP_INFORM - inform
- * @ADF_PROTO_DHCP_DECLINE - decline
- * @ADF_PROTO_ARP_REQ - arp request
- * @ADF_PROTO_ARP_RES - arp response
- * @ADF_PROTO_ICMP_REQ - icmp request
- * @ADF_PROTO_ICMP_RES - icmp response
- * @ADF_PROTO_ICMPV6_REQ - icmpv6 request
- * @ADF_PROTO_ICMPV6_RES - icmpv6 response
- * @ADF_PROTO_ICMPV6_NS - icmpv6 ns packet
- * @ADF_PROTO_ICMPV6_NA - icmpv6 na packet
- * @ADF_PROTO_IPV4_UDP - ipv4 udp
- * @ADF_PROTO_IPV4_TCP - ipv4 tcp
- * @ADF_PROTO_IPV6_UDP - ipv6 udp
- * @ADF_PROTO_IPV6_TCP - ipv6 tcp
- * @ADF_PROTO_MGMT_ASSOC -assoc
- * @ADF_PROTO_MGMT_DISASSOC - disassoc
- * @ADF_PROTO_MGMT_AUTH - auth
- * @ADF_PROTO_MGMT_DEAUTH - deauth
- * @ADF_ROAM_SYNCH - roam synch indication from fw
- * @ADF_ROAM_COMPLETE - roam complete cmd to fw
- * @ADF_ROAM_EVENTID - roam eventid from fw
- */
 enum adf_proto_subtype {
 	ADF_PROTO_INVALID = 0,
 	ADF_PROTO_EAPOL_M1,
@@ -249,6 +203,7 @@ enum adf_proto_subtype {
 	ADF_PROTO_DHCP_DECLINE,
 	ADF_PROTO_ARP_REQ,
 	ADF_PROTO_ARP_RES,
+	ADF_PROTO_ARP_SUBTYPE,
 	ADF_PROTO_ICMP_REQ,
 	ADF_PROTO_ICMP_RES,
 	ADF_PROTO_ICMPV6_REQ,
@@ -259,13 +214,6 @@ enum adf_proto_subtype {
 	ADF_PROTO_IPV4_TCP,
 	ADF_PROTO_IPV6_UDP,
 	ADF_PROTO_IPV6_TCP,
-	ADF_PROTO_MGMT_ASSOC,
-	ADF_PROTO_MGMT_DISASSOC,
-	ADF_PROTO_MGMT_AUTH,
-	ADF_PROTO_MGMT_DEAUTH,
-	ADF_ROAM_SYNCH,
-	ADF_ROAM_COMPLETE,
-	ADF_ROAM_EVENTID,
 	ADF_PROTO_SUBTYPE_MAX
 };
 
@@ -461,49 +409,7 @@ adf_nbuf_dmamap_info(adf_os_dma_map_t bmap, adf_os_dmamap_info_t *sg)
     __adf_nbuf_dmamap_info(bmap, sg);
 }
 
-#ifdef MEMORY_DEBUG
-void adf_net_buf_debug_init(void);
-void adf_net_buf_debug_exit(void);
-void adf_net_buf_debug_clean(void);
-void adf_net_buf_debug_add_node(adf_nbuf_t net_buf, size_t size,
-			uint8_t *file_name, uint32_t line_num);
-void adf_net_buf_debug_delete_node(adf_nbuf_t net_buf);
-void adf_net_buf_debug_release_skb(adf_nbuf_t net_buf);
 
-/* nbuf allocation routines */
-
-#define adf_nbuf_alloc(d, s, r, a, p)			\
-	adf_nbuf_alloc_debug(d, s, r, a, p, __FILE__, __LINE__)
-static inline adf_nbuf_t
-adf_nbuf_alloc_debug(adf_os_device_t osdev, adf_os_size_t size, int reserve,
-		int align, int prio, uint8_t *file_name,
-		uint32_t line_num)
-{
-	adf_nbuf_t net_buf;
-	net_buf = __adf_nbuf_alloc(osdev, size, reserve, align, prio);
-
-	/* Store SKB in internal ADF tracking table */
-	if (adf_os_likely(net_buf))
-		adf_net_buf_debug_add_node(net_buf, size, file_name, line_num);
-
-	return net_buf;
-}
-
-static inline void adf_nbuf_free(adf_nbuf_t net_buf)
-{
-	/* Remove SKB from internal ADF tracking table */
-	if (adf_os_likely(net_buf))
-		adf_net_buf_debug_delete_node(net_buf);
-
-	__adf_nbuf_free(net_buf);
-}
-
-#else
-
-static inline void adf_net_buf_debug_release_skb(adf_nbuf_t net_buf)
-{
-	return;
-}
 
 /*
  * nbuf allocation rouines
@@ -572,8 +478,6 @@ adf_nbuf_free(adf_nbuf_t buf)
 {
     __adf_nbuf_free(buf);
 }
-
-#endif
 
 /**
  * @brief Free adf_nbuf
@@ -1208,20 +1112,6 @@ adf_nbuf_append_ext_list(adf_nbuf_t head_buf, adf_nbuf_t ext_list,
 }
 
 /**
- * adf_nbuf_get_ext_list() - Get the link to extended nbuf list.
- * @head_buf: Network buf holding head segment (single)
- *
- * This ext_list is populated when we have Jumbo packet, for example in case of
- * monitor mode amsdu packet reception, and are stiched using frags_list.
- *
- * Return: Network buf list holding linked extensions from head buf.
- */
-static inline adf_nbuf_t adf_nbuf_get_ext_list(adf_nbuf_t head_buf)
-{
-	return (adf_nbuf_t)__adf_nbuf_get_ext_list(head_buf);
-}
-
-/**
  * @brief Gets the tx checksumming to be performed on this buf
  *
  * @param[in]  buf       buffer
@@ -1395,52 +1285,6 @@ adf_nbuf_trace_set_proto_type(adf_nbuf_t buf, uint8_t proto_type)
 {
    __adf_nbuf_trace_set_proto_type(buf, proto_type);
 }
-
-/**
- * adf_nbuf_get_fwd_flag() - get packet forwarding flag
- * @buf: pointer to adf_nbuf_t structure
- *
- * Returns: packet forwarding flag
-*/
-static inline uint8_t
-adf_nbuf_get_fwd_flag(adf_nbuf_t buf)
-{
-   return __adf_nbuf_get_fwd_flag(buf);
-}
-
-/**
- * adf_nbuf_get_fwd_flag() - update packet forwarding flag
- * @buf: pointer to adf_nbuf_t structure
- * @flag: forwarding flag
- *
- * Returns: none
-*/
-static inline void
-adf_nbuf_set_fwd_flag(adf_nbuf_t buf, uint8_t flag)
-{
-   __adf_nbuf_set_fwd_flag(buf, flag);
-}
-
-/**
- * adf_nbuf_is_ipa_nbuf() - Check if frame owner is IPA
- * @skb: Pointer to skb
- *
- * Returns: TRUE if the owner is IPA else FALSE
- *
- */
-#if (defined(QCA_MDM_DEVICE) && defined(IPA_OFFLOAD))
-static inline bool
-adf_nbuf_is_ipa_nbuf(adf_nbuf_t buf)
-{
-    return (NBUF_OWNER_ID(buf) == IPA_NBUF_OWNER_ID);
-}
-#else
-static inline bool
-adf_nbuf_is_ipa_nbuf(adf_nbuf_t buf)
-{
-    return false;
-}
-#endif /* QCA_MDM_DEVICE && IPA_OFFLOAD*/
 
 /**
  * @brief This function registers protocol trace callback
@@ -1678,11 +1522,11 @@ adf_nbuf_data_get_ipv6_proto(uint8_t *data)
  *
  * This func. checks whether it is a DHCP packet or not.
  *
- * Return: TRUE if it is a DHCP packet
- *         FALSE if not
+ * Return: A_STATUS_OK if it is a DHCP packet
+ *         A_STATUS_FAILED if not
  */
-static inline
-bool adf_nbuf_is_dhcp_pkt(adf_nbuf_t buf)
+static inline a_status_t
+adf_nbuf_is_dhcp_pkt(adf_nbuf_t buf)
 {
 	return __adf_nbuf_data_is_dhcp_pkt(adf_nbuf_data(buf));
 }
@@ -1693,11 +1537,11 @@ bool adf_nbuf_is_dhcp_pkt(adf_nbuf_t buf)
  *
  * This func. checks whether it is a DHCP packet or not.
  *
- * Return: TRUE if it is a DHCP packet
- *         FALSE if not
+ * Return: A_STATUS_OK if it is a DHCP packet
+ *         A_STATUS_FAILED if not
  */
-static inline
-bool adf_nbuf_data_is_dhcp_pkt(uint8_t *data)
+static inline a_status_t
+adf_nbuf_data_is_dhcp_pkt(uint8_t *data)
 {
 	return __adf_nbuf_data_is_dhcp_pkt(data);
 }
@@ -1708,11 +1552,11 @@ bool adf_nbuf_data_is_dhcp_pkt(uint8_t *data)
  *
  * This func. checks whether it is a EAPOL packet or not.
  *
- * Return: TRUE if it is a EAPOL packet
- *         FALSE if not
+ * Return: A_STATUS_OK if it is a EAPOL packet
+ *         A_STATUS_FAILED if not
  */
-static inline
-bool adf_nbuf_is_eapol_pkt(adf_nbuf_t buf)
+static inline a_status_t
+adf_nbuf_is_eapol_pkt(adf_nbuf_t buf)
 {
 	return __adf_nbuf_data_is_eapol_pkt(adf_nbuf_data(buf));
 }
@@ -1723,11 +1567,11 @@ bool adf_nbuf_is_eapol_pkt(adf_nbuf_t buf)
  *
  * This func. checks whether it is a EAPOL packet or not.
  *
- * Return: TRUE if it is a EAPOL packet
- *         FALSE if not
+ * Return: A_STATUS_OK if it is a EAPOL packet
+ *         A_STATUS_FAILED if not
  */
-static inline
-bool adf_nbuf_data_is_eapol_pkt(uint8_t *data)
+static inline a_status_t
+adf_nbuf_data_is_eapol_pkt(uint8_t *data)
 {
 	return __adf_nbuf_data_is_eapol_pkt(data);
 }
@@ -1808,12 +1652,12 @@ bool adf_nbuf_data_is_ipv4_mcast_pkt(uint8_t *data)
 }
 
 /**
- * adf_nbuf_data_is_ipv6_mcast_pkt() - check if it is IPV6 multicast packet.
+ * adf_nbuf_data_is_ipv6_mcast_pkt() - check if it is IPv6 multicast packet.
  * @data: Pointer to IPV6 packet data buffer
  *
- * This func. checks whether it is a IPV6 multicast packet or not.
+ * This func. checks whether it is a IPv6 multicast packet or not.
  *
- * Return: TRUE if it is a IPV6 multicast packet
+ * Return: TRUE if it is a IPv6 multicast packet
  *         FALSE if not
  */
 static inline
@@ -2055,51 +1899,6 @@ adf_nbuf_update_skb_mark(adf_nbuf_t skb, uint32_t mask)
 {
 	 __adf_nbuf_update_skb_mark(skb, mask);
 }
-
-/**
- * adf_nbuf_is_wai() - Check if frame is WAI
- * @skb: Pointer to skb
- *
- * This function checks if the frame is WAPI.
- *
- * Return: true (1) if WAPI
- *
- */
-static inline bool adf_nbuf_is_wai_pkt(struct sk_buff *skb)
-{
-	return __adf_nbuf_is_wai_pkt(skb->data);
-}
-
-/**
- * adf_nbuf_is_multicast_pkt() - Check if frame is multicast packet
- * @skb: Pointer to skb
- *
- * This function checks if the frame is multicast packet.
- *
- * Return: true (1) if multicast
- *
- */
-static inline bool adf_nbuf_is_multicast_pkt(struct sk_buff *skb)
-{
-	return __adf_nbuf_is_multicast_pkt(skb->data);
-}
-
-/**
- * adf_nbuf_is_bcast_pkt() - Check if frame is broadcast packet
- * @skb: Pointer to skb
- *
- * This function checks if the frame is broadcast packet.
- *
- * Return: true (1) if broadcast
- *
- */
-static inline bool adf_nbuf_is_bcast_pkt(struct sk_buff *skb)
-{
-	return __adf_nbuf_is_bcast_pkt(skb->data);
-}
-
-
-
 
 void adf_nbuf_set_state(adf_nbuf_t nbuf, uint8_t current_state);
 void adf_nbuf_tx_desc_count_display(void);

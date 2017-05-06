@@ -41,6 +41,14 @@
 #ifndef __WLAN_HDD_OEM_DATA_H__
 #define __WLAN_HDD_OEM_DATA_H__
 
+#ifndef OEM_DATA_REQ_SIZE
+#define OEM_DATA_REQ_SIZE 280
+#endif
+
+#ifndef OEM_DATA_RSP_SIZE
+#define OEM_DATA_RSP_SIZE 1724
+#endif
+
 #define OEM_APP_SIGNATURE_LEN      16
 #define OEM_APP_SIGNATURE_STR      "QUALCOMM-OEM-APP"
 
@@ -180,13 +188,4 @@ void hdd_SendPeerStatusIndToOemApp(v_MACADDR_t *peerMac,
 	device_mode_t dev_mode);
 #endif //__WLAN_HDD_OEM_DATA_H__
 
-#else
-static inline void hdd_SendPeerStatusIndToOemApp(v_MACADDR_t *peerMac,
-	uint8_t peerStatus,
-	uint8_t peerTimingMeasCap,
-	uint8_t sessionId,
-	tSirSmeChanInfo *chan_info,
-	device_mode_t dev_mode)
-{
-}
 #endif //FEATURE_OEM_DATA_SUPPORT

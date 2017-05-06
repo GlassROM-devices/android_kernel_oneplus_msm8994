@@ -358,8 +358,6 @@ typedef struct sPESession           // Added to Support BT-AMP
     tLimChannelSwitchInfo  gLimChannelSwitch;
     /* *********************End 11H related*****************************/
 
-    uint8_t    lim_sub20_channel_switch_bandwidth;
-
     /*Flag to Track Status/Indicate HBFailure on this session */
     tANI_BOOLEAN LimHBFailureStatus;
     tANI_U32           gLimPhyMode;
@@ -503,17 +501,6 @@ typedef struct sPESession           // Added to Support BT-AMP
     /* Supported NSS is intersection of self and peer NSS */
     bool supported_nss_1x1;
     bool is_ext_caps_present;
-    bool is_vendor_specific_vhtcaps;
-    uint8_t vendor_specific_vht_ie_type;
-    uint8_t vendor_specific_vht_ie_sub_type;
-    bool vendor_vht_for_24ghz_sap;
-    uint16_t beacon_tx_rate;
-    uint8_t *access_policy_vendor_ie;
-    uint8_t access_policy;
-    uint8_t sap_sub20_channelwidth;
-    uint8_t sub20_channelwidth;
-    /* Number of STAs that do not support ECSA capability */
-    uint8_t lim_non_ecsa_cap_num;
 } tPESession, *tpPESession;
 
 /*-------------------------------------------------------------------------

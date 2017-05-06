@@ -36,7 +36,7 @@
  *
  */
 #include "palTypes.h"
-#include "wni_cfg.h"
+#include "wniCfgSta.h"
 #include "aniGlobal.h"
 #include "sirApi.h"
 #include "sirParams.h"
@@ -1424,6 +1424,88 @@ error:
 
     return;
 }
+/**
+ * limSetOemDataReqModeFailed()
+ *
+ * FUNCTION:
+ *  This function is used as callback to resume link after the suspend fails while
+ *  starting oem data req mode.
+ * LOGIC:
+ *  NA
+ *
+ * ASSUMPTIONS:
+ *  NA
+ *
+ * NOTE:
+ *
+ * @param pMac - Pointer to Global MAC structure
+ * @return None
+ */
+
+void limSetOemDataReqModeFailed(tpAniSirGlobal pMac, eHalStatus status, tANI_U32* data)
+{
+    tpLimMlmOemDataRsp pMlmOemDataRsp;
+
+    pMac->lim.gLimMlmState = pMac->lim.gLimPrevMlmState;
+    MTRACE(macTrace(pMac, TRACE_CODE_MLM_STATE, NO_SESSION, pMac->lim.gLimMlmState));
+
+    pMlmOemDataRsp = vos_mem_malloc(sizeof(tLimMlmOemDataRsp));
+    if ( NULL == pMlmOemDataRsp )
+    {
+        limLog(pMac->hHdd, LOGP, FL("OEM_DATA: memory allocation for pMlmOemDataRsp failed under suspend link failure"));
+        return;
+    }
+
+    if (NULL != pMac->lim.gpLimMlmOemDataReq)
+    {
+        vos_mem_free(pMac->lim.gpLimMlmOemDataReq);
+        pMac->lim.gpLimMlmOemDataReq = NULL;
+    }
+
+    vos_mem_set(pMlmOemDataRsp, sizeof(tLimMlmOemDataRsp), 0);
+
+    limPostSmeMessage(pMac, LIM_MLM_OEM_DATA_CNF, (tANI_U32*)pMlmOemDataRsp);
+
+    return;
+}
+
+/**
+ * limSetOemDataReqMode()
+ *
+ *FUNCTION:
+ * This function is called to setup system into OEM DATA REQ mode
+ *
+ *LOGIC:
+ * NA
+ *
+ *ASSUMPTIONS:
+ * NA
+ *
+ *NOTE:
+ *
+ * @param  pMac - Pointer to Global MAC structure
+ * @return None
+ */
+
+void limSetOemDataReqMode(tpAniSirGlobal pMac, eHalStatus status, tANI_U32* data)
+{
+    if(status != eHAL_STATUS_SUCCESS)
+    {
+        limLog(pMac, LOGE, FL("OEM_DATA: failed in suspend link"));
+        /* If failed to suspend the link, there is no need
+         * to resume link. Return failure.
+         */
+        limSetOemDataReqModeFailed(pMac, status, data);
+    }
+    else
+    {
+        PELOGE(limLog(pMac, LOGE, FL("OEM_DATA: Calling limSendHalOemDataReq"));)
+        limSendHalOemDataReq(pMac);
+    }
+
+    return;
+} /*** end limSendHalOemDataReq() ***/
+
 #endif //FEATURE_OEM_DATA_SUPPORT
 
 static void
@@ -1655,14 +1737,6 @@ limMlmAddBss (
                  pMac->roam.configParam.rx_aggregation_size;
     }
     pAddBssParams->dot11_mode = psessionEntry->dot11mode;
-
-    pAddBssParams->beacon_tx_rate = pMlmStartReq->beacon_tx_rate;
-
-    if (psessionEntry->sub20_channelwidth == SUB20_MODE_5MHZ)
-            pAddBssParams->channelwidth = CH_WIDTH_5MHZ;
-    else if (psessionEntry->sub20_channelwidth == SUB20_MODE_10MHZ)
-            pAddBssParams->channelwidth = CH_WIDTH_10MHZ;
-
     limLog(pMac, LOG2, FL("dot11_mode:%d"), pAddBssParams->dot11_mode);
 
     msgQ.type       = WDA_ADD_BSS_REQ;
@@ -1967,10 +2041,8 @@ static void limProcessMlmOemDataReq(tpAniSirGlobal pMac, tANI_U32 *pMsgBuf)
 
         limPrintMlmState(pMac, LOGW, pMac->lim.gLimMlmState);
 
-        /* Free up incoming buffer */
-        if (data_req->data)
-            vos_mem_free(data_req->data);
-        vos_mem_free(data_req);
+        /// Free up buffer allocated
+        vos_mem_free(pMsgBuf);
 
         /// Return Meas confirm with INVALID_PARAMETERS
         pMlmOemDataRsp = vos_mem_malloc(sizeof(tLimMlmOemDataRsp));
@@ -3717,7 +3789,7 @@ limProcessMinChannelTimeout(tpAniSirGlobal pMac)
         {
             // This shouldn't be the case, but when this happens, this timeout should be for the last channelId.
             // Get the channelNum as close to correct as possible.
-            if (pMac->lim.gpLimMlmScanReq->channelList.numChannels > 0)
+            if(pMac->lim.gpLimMlmScanReq->channelList.channelNumber)
             {
                 channelNum = pMac->lim.gpLimMlmScanReq->channelList.channelNumber[pMac->lim.gpLimMlmScanReq->channelList.numChannels - 1];
             }
@@ -3793,7 +3865,7 @@ limProcessMaxChannelTimeout(tpAniSirGlobal pMac)
         }
         else
         {
-            if (pMac->lim.gpLimMlmScanReq->channelList.numChannels > 0)
+            if(pMac->lim.gpLimMlmScanReq->channelList.channelNumber)
             {
                 channelNum = pMac->lim.gpLimMlmScanReq->channelList.channelNumber[pMac->lim.gpLimMlmScanReq->channelList.numChannels - 1];
             }

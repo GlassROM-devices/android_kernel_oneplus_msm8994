@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2016 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -186,13 +186,11 @@ wlan_hdd_remain_on_channel_callback(tHalHandle hHal, void* pCtx,
     }
 
     hddLog( LOG1, "Received remain on channel rsp");
-    if (!VOS_IS_STATUS_SUCCESS(vos_timer_stop(
-                    &pRemainChanCtx->hdd_remain_on_chan_timer)))
-        hddLog( LOGE, FL("Failed to stop hdd_remain_on_chan_timer"));
-    if (!VOS_IS_STATUS_SUCCESS(vos_timer_destroy(
-                    &pRemainChanCtx->hdd_remain_on_chan_timer)))
-        hddLog( LOGE, FL("Failed to destroy hdd_remain_on_chan_timer"));
+    vos_timer_stop(&pRemainChanCtx->hdd_remain_on_chan_timer);
+    vos_timer_destroy(&pRemainChanCtx->hdd_remain_on_chan_timer);
+
     cfgState->remain_on_chan_ctx = NULL;
+
     /*
      * Resetting the roc in progress early ensures that the subsequent
      * roc requests are immediately processed without being queued
@@ -272,6 +270,7 @@ wlan_hdd_remain_on_channel_callback(tHalHandle hHal, void* pCtx,
                 NULL, 0 );
 
     }
+
     mutex_lock(&cfgState->remain_on_chan_ctx_lock);
     if(pRemainChanCtx->action_pkt_buff.frame_ptr != NULL
        && pRemainChanCtx->action_pkt_buff.frame_length != 0 )
@@ -302,12 +301,9 @@ void wlan_hdd_cancel_existing_remain_on_channel(hdd_adapter_t *pAdapter)
 
         if (VOS_TIMER_STATE_RUNNING == vos_timer_getCurrentState(
                     &cfgState->remain_on_chan_ctx->hdd_remain_on_chan_timer))
-        {
-            if (!VOS_IS_STATUS_SUCCESS(
-                        vos_timer_stop(&cfgState->remain_on_chan_ctx->
-                                 hdd_remain_on_chan_timer)))
-                hddLog( LOGE, FL("Failed to stop hdd_remain_on_chan_timer"));
-        }
+            vos_timer_stop(&cfgState->remain_on_chan_ctx->
+                                              hdd_remain_on_chan_timer);
+
         pRemainChanCtx = cfgState->remain_on_chan_ctx;
         if (NULL == pRemainChanCtx)
         {
@@ -478,13 +474,8 @@ wait:
                 if (roc_ctx != NULL)
                 {
                      cfgState->remain_on_chan_ctx = NULL;
-                     if (!VOS_IS_STATUS_SUCCESS(vos_timer_stop(
-                                     &roc_ctx->hdd_remain_on_chan_timer)))
-                         hddLog( LOGE, FL("Failed to stop hdd_remain_on_chan_timer"));
-                     if (!VOS_IS_STATUS_SUCCESS(vos_timer_destroy
-                                 (&roc_ctx->hdd_remain_on_chan_timer)))
-                         hddLog( LOGE, FL(
-                                     "Failed to destroy hdd_remain_on_chan_timer"));
+                     vos_timer_stop(&roc_ctx->hdd_remain_on_chan_timer);
+                     vos_timer_destroy(&roc_ctx->hdd_remain_on_chan_timer);
                      if (roc_ctx->action_pkt_buff.frame_ptr != NULL
                            && roc_ctx->action_pkt_buff.frame_length != 0)
                      {
@@ -559,7 +550,6 @@ void wlan_hdd_remain_on_chan_timeout(void *data)
                          (WLAN_HDD_GET_CTX(pAdapter))->pvosContext);
     }
 
-    wlan_hdd_start_stop_tdls_source_timer(pHddCtx, eTDLS_SUPPORT_ENABLED);
     vos_runtime_pm_allow_suspend(pHddCtx->runtime_context.roc);
     hdd_allow_suspend(WIFI_POWER_EVENT_WAKELOCK_ROC);
 }
@@ -645,21 +635,11 @@ static int wlan_hdd_execute_remain_on_channel(hdd_adapter_t *pAdapter,
                                   == REMAIN_ON_CHANNEL_REQUEST)? TRUE:FALSE)) {
             hddLog(LOGE, FL("sme_RemainOnChannel returned failure"));
             mutex_lock(&cfgState->remain_on_chan_ctx_lock);
+            cfgState->remain_on_chan_ctx = NULL;
             pAdapter->is_roc_inprogress = FALSE;
-            pRemainChanCtx = cfgState->remain_on_chan_ctx;
-            hddLog( LOG1, FL(
-                        "Freeing ROC ctx cfgState->remain_on_chan_ctx=%p"),
-                         cfgState->remain_on_chan_ctx);
-            if (pRemainChanCtx)
-            {
-                if (!VOS_IS_STATUS_SUCCESS(vos_timer_destroy
-                            (&pRemainChanCtx->hdd_remain_on_chan_timer)))
-                    hddLog( LOGE, FL(
-                        "Failed to destroy hdd_remain_on_chan_timer"));
-                vos_mem_free(pRemainChanCtx);
-                cfgState->remain_on_chan_ctx = NULL;
-            }
             mutex_unlock(&cfgState->remain_on_chan_ctx_lock);
+	    vos_timer_destroy(&pRemainChanCtx->hdd_remain_on_chan_timer);
+            vos_mem_free(pRemainChanCtx);
             vos_runtime_pm_allow_suspend(pHddCtx->runtime_context.roc);
             hdd_allow_suspend(WIFI_POWER_EVENT_WAKELOCK_ROC);
             return -EINVAL;
@@ -691,21 +671,11 @@ static int wlan_hdd_execute_remain_on_channel(hdd_adapter_t *pAdapter,
                     "%s: WLANSAP_RemainOnChannel returned fail", __func__);
 
            mutex_lock(&cfgState->remain_on_chan_ctx_lock);
+           cfgState->remain_on_chan_ctx = NULL;
            pAdapter->is_roc_inprogress = FALSE;
-           pRemainChanCtx = cfgState->remain_on_chan_ctx;
-           hddLog( LOG1, FL(
-                        "Freeing ROC ctx cfgState->remain_on_chan_ctx=%p"),
-                         cfgState->remain_on_chan_ctx);
-           if (pRemainChanCtx)
-           {
-                if (!VOS_IS_STATUS_SUCCESS(vos_timer_destroy
-                            (&pRemainChanCtx->hdd_remain_on_chan_timer)))
-                    hddLog( LOGE, FL(
-                         "Failed to destroy hdd_remain_on_chan_timer"));
-                vos_mem_free (pRemainChanCtx);
-                cfgState->remain_on_chan_ctx = NULL;
-           }
            mutex_unlock(&cfgState->remain_on_chan_ctx_lock);
+	   vos_timer_destroy(&pRemainChanCtx->hdd_remain_on_chan_timer);
+           vos_mem_free (pRemainChanCtx);
            vos_runtime_pm_allow_suspend(pHddCtx->runtime_context.roc);
            hdd_allow_suspend(WIFI_POWER_EVENT_WAKELOCK_ROC);
            return -EINVAL;
@@ -735,7 +705,6 @@ static int wlan_hdd_execute_remain_on_channel(hdd_adapter_t *pAdapter,
         }
 
     }
-    wlan_hdd_start_stop_tdls_source_timer(pHddCtx, eTDLS_SUPPORT_DISABLED);
     return 0;
 }
 
@@ -894,6 +863,8 @@ static int wlan_hdd_request_remain_on_channel( struct wiphy *wiphy,
     int ret = 0;
     int status = 0;
 
+    ENTER();
+
     hddLog(LOG1, FL("Device_mode %s(%d)"),
            hdd_device_mode_to_string(pAdapter->device_mode),
            pAdapter->device_mode);
@@ -919,8 +890,7 @@ static int wlan_hdd_request_remain_on_channel( struct wiphy *wiphy,
     if (0 != ret)
         return ret;
 
-    if (hdd_isConnectionInProgress((hdd_context_t *)pAdapter->pHddCtx, NULL,
-                                    NULL)) {
+    if (hdd_isConnectionInProgress((hdd_context_t *)pAdapter->pHddCtx)) {
         hddLog(LOGE, FL("Connection is in progress"));
         isBusy = VOS_TRUE;
     }
@@ -1006,6 +976,7 @@ static int wlan_hdd_request_remain_on_channel( struct wiphy *wiphy,
         hddLog(LOG1, FL("scheduling delayed work: no connection/roc active"));
         schedule_delayed_work(&pHddCtx->rocReqWork, 0);
     }
+    EXIT();
     return 0;
 }
 
@@ -1120,9 +1091,7 @@ void hdd_remainChanReadyHandler( hdd_adapter_t *pAdapter )
            vos_timer_getCurrentState(&pRemainChanCtx->hdd_remain_on_chan_timer))
         {
             hddLog( LOGE, "Timer Started before ready event!!!");
-            if (!VOS_IS_STATUS_SUCCESS(vos_timer_stop(
-                            &pRemainChanCtx->hdd_remain_on_chan_timer)))
-                hddLog( LOGE, FL("Failed to stop hdd_remain_on_chan_timer"));
+            vos_timer_stop(&pRemainChanCtx->hdd_remain_on_chan_timer);
         }
         status = vos_timer_start(&pRemainChanCtx->hdd_remain_on_chan_timer,
                                 (pRemainChanCtx->duration + COMPLETE_EVENT_PROPOGATE_TIME));
@@ -1259,14 +1228,12 @@ int __wlan_hdd_cfg80211_cancel_remain_on_channel( struct wiphy *wiphy,
         hddLog( LOGE,
             "%s: No Remain on channel pending with specified cookie value",
              __func__);
-        return 0;
+        return -EINVAL;
     }
 
     if (NULL != cfgState->remain_on_chan_ctx)
     {
-        if (!VOS_IS_STATUS_SUCCESS(vos_timer_stop(
-                    &cfgState->remain_on_chan_ctx->hdd_remain_on_chan_timer)))
-            hddLog( LOGE, FL("Failed to stop hdd_remain_on_chan_timer"));
+        vos_timer_stop(&cfgState->remain_on_chan_ctx->hdd_remain_on_chan_timer);
         if (TRUE == pRemainChanCtx->hdd_remain_on_chan_cancel_in_progress)
         {
             mutex_unlock(&cfgState->remain_on_chan_ctx_lock);
@@ -1600,34 +1567,7 @@ int __wlan_hdd_mgmt_tx(struct wiphy *wiphy, struct net_device *dev,
                if(VOS_TIMER_STATE_RUNNING == vos_timer_getCurrentState(
                    &cfgState->remain_on_chan_ctx->hdd_remain_on_chan_timer))
                {
-                   /* In the latest wpa_supplicant, the wait time for go
-                    * negotiation response is set to 100msec, due to which,
-                    * there could be a possibility that, if the go negotaition
-                    * confirmation frame is not received within 100 msec, ROC
-                    * would be timeout and resulting in connection failures as
-                    * the device will not be on the listen channel anymore to
-                    * receive the confirmation frame.
-                    * Also wpa_supplicant has set the wait to 50msec for go
-                    * negotiation confirmation, invitation response and
-                    * provisional discovery response frames. So increase the
-                    * wait time for all these frames.
-                    */
-                   actionFrmType =
-                          buf[WLAN_HDD_PUBLIC_ACTION_FRAME_TYPE_OFFSET];
-                   if ( actionFrmType == WLAN_HDD_GO_NEG_RESP ||
-                           actionFrmType == WLAN_HDD_PROV_DIS_RESP)
-                       wait = wait + ACTION_FRAME_RSP_WAIT;
-                   else if ( actionFrmType == WLAN_HDD_GO_NEG_CNF ||
-                           actionFrmType == WLAN_HDD_INVITATION_RESP )
-                       wait = wait + ACTION_FRAME_ACK_WAIT;
-
-                   hddLog( LOG1, "%s: Extending the wait time %d for actionFrmType=%d",
-                           __func__,wait,actionFrmType);
-
-                   if (!VOS_IS_STATUS_SUCCESS(
-                               vos_timer_stop(&cfgState->remain_on_chan_ctx->
-                                   hdd_remain_on_chan_timer)))
-                       hddLog( LOGE, FL("Failed to stop hdd_remain_on_chan_timer"));
+                   vos_timer_stop(&cfgState->remain_on_chan_ctx->hdd_remain_on_chan_timer);
                    status = vos_timer_start(&cfgState->remain_on_chan_ctx->hdd_remain_on_chan_timer,
                                                         wait);
                    mutex_unlock(&cfgState->remain_on_chan_ctx_lock);
@@ -1662,18 +1602,17 @@ int __wlan_hdd_mgmt_tx(struct wiphy *wiphy, struct net_device *dev,
          } else
              mutex_unlock(&cfgState->remain_on_chan_ctx_lock);
 
-        mutex_lock(&cfgState->remain_on_chan_ctx_lock);
         if((cfgState->remain_on_chan_ctx != NULL) &&
            (cfgState->current_freq == chan->center_freq)
           )
         {
-            mutex_unlock(&cfgState->remain_on_chan_ctx_lock);
             hddLog(LOG1,"action frame: extending the wait time");
             extendedWait = (tANI_U16)wait;
             goto send_frame;
         }
-        mutex_unlock(&cfgState->remain_on_chan_ctx_lock);
+
         INIT_COMPLETION(pAdapter->offchannel_tx_event);
+
         status = wlan_hdd_request_remain_on_channel(wiphy, dev,
                                         chan,
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0)) && !defined(WITH_BACKPORTS)
@@ -1727,10 +1666,16 @@ int __wlan_hdd_mgmt_tx(struct wiphy *wiphy, struct net_device *dev,
 
         mutex_lock(&cfgState->remain_on_chan_ctx_lock);
 
-        *cookie = (uintptr_t) cfgState->buf;
-        cfgState->action_cookie = *cookie;
-        if (cfgState->remain_on_chan_ctx)
-            cfgState->remain_on_chan_ctx->cookie = cfgState->action_cookie;
+        if( cfgState->remain_on_chan_ctx )
+        {
+            cfgState->action_cookie = cfgState->remain_on_chan_ctx->cookie;
+            *cookie = cfgState->action_cookie;
+        }
+        else
+        {
+            *cookie = (uintptr_t) cfgState->buf;
+            cfgState->action_cookie = *cookie;
+        }
 
         mutex_unlock(&cfgState->remain_on_chan_ctx_lock);
     }
@@ -2070,8 +2015,7 @@ int hdd_setP2pNoa( struct net_device *dev, tANI_U8 *command )
         NoA.single_noa_duration = 0;
         NoA.psSelection = P2P_POWER_SAVE_TYPE_PERIODIC_NOA;
     }
-    /* NOA interval in TU */
-    NoA.interval = NOA_INTERVAL_IN_TU;
+    NoA.interval = MS_TO_MUS(100);
     NoA.count = count;
     NoA.sessionid = pAdapter->sessionId;
 
@@ -2265,11 +2209,20 @@ static tANI_U8 wlan_hdd_get_session_type( enum nl80211_iftype type )
     return sessionType;
 }
 
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,7,0)) || defined(WITH_BACKPORTS)
 struct wireless_dev* __wlan_hdd_add_virtual_intf(
                   struct wiphy *wiphy, const char *name,
-                  unsigned char name_assign_type,
                   enum nl80211_iftype type,
                   u32 *flags, struct vif_params *params )
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0))
+struct wireless_dev* __wlan_hdd_add_virtual_intf(
+                  struct wiphy *wiphy, char *name, enum nl80211_iftype type,
+                  u32 *flags, struct vif_params *params )
+#else
+struct net_device* __wlan_hdd_add_virtual_intf(
+                  struct wiphy *wiphy, char *name, enum nl80211_iftype type,
+                  u32 *flags, struct vif_params *params )
+#endif
 {
     hdd_context_t *pHddCtx = (hdd_context_t*) wiphy_priv(wiphy);
     hdd_adapter_t* pAdapter = NULL;
@@ -2331,7 +2284,6 @@ struct wireless_dev* __wlan_hdd_add_virtual_intf(
             pAdapter = hdd_open_adapter( pHddCtx,
                                          wlan_hdd_get_session_type(type),
                                          name, p2pDeviceAddress.bytes,
-                                         name_assign_type,
                                          VOS_TRUE );
             if (WLAN_HDD_RX_HANDLE_RPS == pHddCtx->cfg_ini->rxhandle)
                 hdd_dp_util_send_rps_ind(pAdapter);
@@ -2339,9 +2291,7 @@ struct wireless_dev* __wlan_hdd_add_virtual_intf(
     else
     {
        pAdapter = hdd_open_adapter( pHddCtx, wlan_hdd_get_session_type(type),
-                          name, wlan_hdd_get_intf_addr(pHddCtx),
-                          name_assign_type,
-                          VOS_TRUE);
+                          name, wlan_hdd_get_intf_addr(pHddCtx), VOS_TRUE );
        if (WLAN_HDD_RX_HANDLE_RPS == pHddCtx->cfg_ini->rxhandle)
            hdd_dp_util_send_rps_ind(pAdapter);
     }
@@ -2359,45 +2309,16 @@ struct wireless_dev* __wlan_hdd_add_virtual_intf(
 #endif
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0))
-/**
- * wlan_hdd_add_virtual_intf() - Add virtual interface wrapper
- * @wiphy: wiphy pointer
- * @name: User-visible name of the interface
- * @name_assign_type: the name of assign type of the netdev
- * @nl80211_iftype: (virtual) interface types
- * @flags: monitor mode configuration flags (not used)
- * @vif_params: virtual interface parameters (not used)
- *
- * Return: the pointer of wireless dev, otherwise NULL.
- */
-struct wireless_dev *wlan_hdd_add_virtual_intf(struct wiphy *wiphy,
-                                               const char *name,
-                                               unsigned char name_assign_type,
-                                               enum nl80211_iftype type,
-                                               u32 *flags,
-                                               struct vif_params *params)
-{
-    struct wireless_dev *wdev;
-
-    vos_ssr_protect(__func__);
-    wdev = __wlan_hdd_add_virtual_intf(wiphy, name, name_assign_type,
-                                       type, flags, params);
-    vos_ssr_unprotect(__func__);
-    return wdev;
-}
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3,7,0)) || defined(WITH_BACKPORTS)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,7,0)) || defined(WITH_BACKPORTS)
 struct wireless_dev* wlan_hdd_add_virtual_intf(
                   struct wiphy *wiphy, const char *name,
                   enum nl80211_iftype type,
                   u32 *flags, struct vif_params *params )
 {
     struct wireless_dev* wdev;
-    unsigned char name_assign_type = 0;
 
     vos_ssr_protect(__func__);
-    wdev = __wlan_hdd_add_virtual_intf(wiphy, name, name_assign_type,
-                                       type, flags, params);
+    wdev = __wlan_hdd_add_virtual_intf(wiphy, name, type, flags, params);
     vos_ssr_unprotect(__func__);
     return wdev;
 }
@@ -2407,11 +2328,9 @@ struct wireless_dev* wlan_hdd_add_virtual_intf(
                   u32 *flags, struct vif_params *params )
 {
     struct wireless_dev* wdev;
-    unsigned char name_assign_type = 0;
 
     vos_ssr_protect(__func__);
-    wdev = __wlan_hdd_add_virtual_intf(wiphy, name, name_assign_type,
-                                       type, flags, params);
+    wdev = __wlan_hdd_add_virtual_intf(wiphy, name, type, flags, params);
     vos_ssr_unprotect(__func__);
     return wdev;
 }
@@ -2421,11 +2340,9 @@ struct net_device* wlan_hdd_add_virtual_intf(
                   u32 *flags, struct vif_params *params )
 {
     struct net_device* ndev;
-    unsigned char name_assign_type = 0;
 
     vos_ssr_protect(__func__);
-    ndev = __wlan_hdd_add_virtual_intf(wiphy, name, name_assign_type,
-                                       type, flags, params);
+    ndev = __wlan_hdd_add_virtual_intf(wiphy, name, type, flags, params);
     vos_ssr_unprotect(__func__);
     return ndev;
 }
@@ -2441,13 +2358,14 @@ int __wlan_hdd_del_virtual_intf(struct wiphy *wiphy, struct net_device *dev)
     struct net_device *dev = wdev->netdev;
 #endif
     hdd_context_t *pHddCtx = (hdd_context_t*) wiphy_priv(wiphy);
+    hdd_adapter_t *pAdapter = WLAN_HDD_GET_PRIV_PTR( dev );
     hdd_adapter_t *pVirtAdapter = WLAN_HDD_GET_PRIV_PTR(dev);
     int status;
     ENTER();
 
     MTRACE(vos_trace(VOS_MODULE_ID_HDD,
                      TRACE_CODE_HDD_DEL_VIRTUAL_INTF,
-                     pVirtAdapter->sessionId, pVirtAdapter->device_mode));
+                     pAdapter->sessionId, pAdapter->device_mode));
     hddLog(LOG1, FL("Device_mode %s(%d)"),
            hdd_device_mode_to_string(pVirtAdapter->device_mode),
            pVirtAdapter->device_mode);
@@ -2661,9 +2579,7 @@ void __hdd_indicate_mgmt_frame(hdd_adapter_t *pAdapter,
                           if(VOS_TIMER_STATE_RUNNING ==
                             vos_timer_getCurrentState(&pRemainChanCtx->hdd_remain_on_chan_timer))
                           {
-                              if (!VOS_IS_STATUS_SUCCESS(vos_timer_stop(
-                                    &pRemainChanCtx->hdd_remain_on_chan_timer)))
-                                  hddLog( LOGE, FL("Failed to stop hdd_remain_on_chan_timer"));
+                              vos_timer_stop(&pRemainChanCtx->hdd_remain_on_chan_timer);
                               status = vos_timer_start(
                                   &pRemainChanCtx->hdd_remain_on_chan_timer,
                                             extend_time);

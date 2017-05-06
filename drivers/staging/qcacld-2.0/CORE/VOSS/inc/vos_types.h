@@ -58,12 +58,6 @@
 // macro to return the floor of an integer division operation
 #define VOS_FLOOR_DIV( _a, _b ) ( ( (_a) - ( (_a) % (_b) ) ) / (_b) )
 
-static inline unsigned int vos_round_div(unsigned int dividend,
-					 unsigned int divisor)
-{
-	return (dividend + (divisor / 2)) / divisor;
-}
-
 #define VOS_SWAP_U16(_x) \
    ( ( ( (_x) << 8 ) & 0xFF00 ) | ( ( (_x) >> 8 ) & 0x00FF ) )
 
@@ -160,26 +154,8 @@ typedef enum
 #ifdef WLAN_OPEN_P2P_INTERFACE
 #define VOS_MAX_CONCURRENCY_PERSONA    4  // This should match with WLAN_MAX_INTERFACES
 #else
-/*
- * This should match with WLAN_MAX_INTERFACES
- */
-#ifdef WLAN_4SAP_CONCURRENCY
-#define VOS_MAX_CONCURRENCY_PERSONA    4
-#else
 #define VOS_MAX_CONCURRENCY_PERSONA    3
 #endif
-#endif
-
-/*
- * MAX concurrency channel count in MCC
- */
-#define MAX_CONCURRENCY_CHAN_COUNT 2
-
-/*
- * MAX Session count per channel in MCC
- */
-#define MAX_SESSSION_PER_CHAN_MCC 2
-
 
 //This is a bit pattern to be set for each mode
 //bit 0 - sta mode

@@ -189,7 +189,7 @@ static int wlan_send_sock_msg_to_app(tAniHdr *wmsg, int radio,
 	tAniNlHdr *wnl = NULL;
 	struct sk_buff *skb;
 	struct nlmsghdr *nlh;
-	int wmsg_length = ntohs(wmsg->length);
+	int wmsg_length = wmsg->length;
 	static int nlmsg_seq;
 
 	if (radio < 0 || radio > ANI_MAX_RADIOS) {
@@ -339,12 +339,9 @@ int wlan_log_to_user(VOS_TRACE_LEVEL log_level, char *to_be_sent, int length)
 	struct timeval tv;
 	struct rtc_time tm;
 	unsigned long local_time;
-	int radio;
 
-	radio = vos_get_radio_index();
-
-	if ((!vos_is_multicast_logging()) || (!gwlan_logging.is_active) ||
-	    (radio == -EINVAL)) {
+	if ((!vos_is_multicast_logging()) ||
+              (!gwlan_logging.is_active)) {
 		/*
 		 * This is to make sure that we print the logs to kmsg console
 		 * when no logger app is running. This is also needed to
@@ -353,25 +350,18 @@ int wlan_log_to_user(VOS_TRACE_LEVEL log_level, char *to_be_sent, int length)
 		 * register with driver immediately and start logging all the
 		 * messages.
 		 */
-		/*
-		 * R%d: if the radio index is invalid, just post the message
-		 * to console.
-		 * Also the radio index shouldn't happen to be EINVAL, but if
-		 * that happen just print it, so that the logging would be
-		 * aware the cnss_logger is somehow failed.
-		 */
-		pr_info("R%d: %s\n", radio, to_be_sent);
+		pr_info("%s\n", to_be_sent);
 	} else {
 
-		/* Format the Log time R#: [hr:min:sec.microsec] */
+		/* Format the Log time [hr:min:sec.microsec] */
 		do_gettimeofday(&tv);
 		/* Convert rtc to local time */
 		local_time = (u32)(tv.tv_sec - (sys_tz.tz_minuteswest * 60));
 		rtc_time_to_tm(local_time, &tm);
 		tlen = snprintf(tbuf, sizeof(tbuf),
-				"R%d: [%s][%02d:%02d:%02d.%06lu] ",
-				radio, current->comm, tm.tm_hour,
-				tm.tm_min, tm.tm_sec, tv.tv_usec);
+				"[%s][%02d:%02d:%02d.%06lu] ",
+				current->comm, tm.tm_hour, tm.tm_min, tm.tm_sec,
+				tv.tv_usec);
 
 		/* 1+1 indicate '\n'+'\0' */
 		total_log_len = length + tlen + 1 + 1;
@@ -435,7 +425,7 @@ int wlan_log_to_user(VOS_TRACE_LEVEL log_level, char *to_be_sent, int length)
 		if (gwlan_logging.log_fe_to_console
 			&& ((VOS_TRACE_LEVEL_FATAL == log_level)
 			|| (VOS_TRACE_LEVEL_ERROR == log_level))) {
-			pr_info("%s %s\n", tbuf, to_be_sent);
+			pr_info("%s\n", to_be_sent);
 		}
 	}
 	return 0;
@@ -553,7 +543,7 @@ int pktlog_send_per_pkt_stats_to_user(void)
 			goto err;
 		}
 		ret = nl_srv_bcast(pstats_msg->skb);
-		if ((ret < 0) && (ret != -ESRCH)) {
+		if (ret < 0) {
 			pr_info("%s: Send Failed %d drop_count = %u\n",
 				__func__, ret,
 				++gwlan_logging.pkt_stat_drop_cnt);
@@ -818,7 +808,7 @@ static int wlan_logging_proc_sock_rx_msg(struct sk_buff *skb)
 	tAniNlHdr *wnl;
 	int radio;
 	int type;
-	int ret, len;
+	int ret;
 
 	wnl = (tAniNlHdr *) skb->data;
 	radio = wnl->radio;
@@ -831,12 +821,10 @@ static int wlan_logging_proc_sock_rx_msg(struct sk_buff *skb)
 		return -EINVAL;
 	}
 
-	len = ntohs(wnl->wmsg.length) + sizeof(tAniNlHdr);
-	if (len > skb_headlen(skb)) {
+	if (wnl->wmsg.length > skb->data_len) {
 		LOGGING_TRACE(VOS_TRACE_LEVEL_ERROR,
-			"%s: invalid length, msgLen:%x skb len:%x headLen: %d data_len: %d",
-			__func__, len, skb->len, skb_headlen(skb),
-			skb->data_len);
+			"%s: invalid length msgLen:%x skb data_len:%x\n",
+			__func__, wnl->wmsg.length, skb->data_len);
 		return -EINVAL;
 	}
 

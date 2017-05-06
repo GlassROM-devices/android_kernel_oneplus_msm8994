@@ -42,7 +42,6 @@
 #include "vos_sched.h"
 #include "wlan_ptt_sock_svc.h"
 #include "wlan_nlink_srv.h"
-#include "wlan_ps_wow_diag.h"
 
 #define PTT_MSG_DIAG_CMDS_TYPE   0x5050
 
@@ -295,7 +294,7 @@ void vos_event_report_payload(v_U16_t event_Id, v_U16_t length, v_VOID_t *pPaylo
         vos_mem_copy(pBuf, pPayload, length);
 
         if( ptt_sock_send_msg_to_app(wmsg, 0, ANI_NL_MSG_PUMAC, -1) < 0) {
-            VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_WARN,
+            VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_ERROR,
                        ("Ptt Socket error sending message to the app!!"));
             vos_mem_free((v_VOID_t*)wmsg);
             return;
@@ -307,28 +306,6 @@ void vos_event_report_payload(v_U16_t event_Id, v_U16_t length, v_VOID_t *pPaylo
     return;
 
 }
-
-#ifdef FEATURE_WLAN_DIAG_SUPPORT
-/**
- * vos_wow_wakeup_host_event()- send wow wakeup event
- * @wow_wakeup_cause: WOW wakeup reason code
- *
- * This function sends wow wakeup reason code diag event
- *
- * Return: void.
- */
-void vos_wow_wakeup_host_event(uint8_t wow_wakeup_cause)
-{
-	WLAN_VOS_DIAG_EVENT_DEF(wowRequest,
-		vos_event_wlan_powersave_wow_payload_type);
-	vos_mem_zero(&wowRequest, sizeof(wowRequest));
-
-	wowRequest.event_subtype = WLAN_WOW_WAKEUP;
-	wowRequest.wow_wakeup_cause = wow_wakeup_cause;
-	WLAN_VOS_DIAG_EVENT_REPORT(&wowRequest,
-		EVENT_WLAN_POWERSAVE_WOW);
-}
-#endif
 
 /**
  * vos_log_low_resource_failure() - This function is used to send low

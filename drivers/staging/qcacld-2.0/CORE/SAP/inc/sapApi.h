@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2016 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -101,13 +101,10 @@ when           who                what, where, why
 #define       MAX_TEXT_SIZE                32
 
 #define       MAX_CHANNEL_LIST_LEN         256
-/*
- * max # of SAP
- */
-#ifdef WLAN_4SAP_CONCURRENCY
-#define       VOS_MAX_NO_OF_SAP_MODE       4
+#ifdef WLAN_FEATURE_MBSSID
+#define       VOS_MAX_NO_OF_SAP_MODE       2 // max # of SAP
 #else
-#define       VOS_MAX_NO_OF_SAP_MODE       2
+#define       VOS_MAX_NO_OF_SAP_MODE       1 // max # of SAP
 #endif
 #define       SAP_MAX_NUM_SESSION          5
 #define       SAP_MAX_OBSS_STA_CNT         1 // max # of OBSS STA
@@ -189,7 +186,9 @@ typedef enum {
     eSAP_DFS_NOL_GET,  /* Event sent when user need to get the DFS NOL from CNSS */
     eSAP_DFS_NOL_SET,  /* Event sent when user need to set the DFS NOL to CNSS */
     eSAP_DFS_NO_AVAILABLE_CHANNEL, /* No ch available after DFS RADAR detect */
+#ifdef FEATURE_WLAN_AP_AP_ACS_OPTIMIZE
     eSAP_ACS_SCAN_SUCCESS_EVENT,
+#endif
     eSAP_ACS_CHANNEL_SELECTED,
     eSAP_ECSA_CHANGE_CHAN_IND,
 } eSapHddEvent;
@@ -264,7 +263,6 @@ typedef struct sap_StationAssocIndication_s {
     eCsrEncryptionType negotiatedUCEncryptionType;
     eCsrEncryptionType negotiatedMCEncryptionType;
     tANI_BOOLEAN fAuthRequired;
-    uint8_t      ecsa_capable;
 } tSap_StationAssocIndication;
 
 typedef struct sap_StationAssocReassocCompleteEvent_s {
@@ -285,18 +283,6 @@ typedef struct sap_StationAssocReassocCompleteEvent_s {
     tANI_U8*     assocRespPtr;
     tANI_U8      timingMeasCap;
     tSirSmeChanInfo chan_info;
-    uint8_t      ecsa_capable;
-    bool                 ampdu;
-    bool                 sgi_enable;
-    bool                 tx_stbc;
-    bool                 rx_stbc;
-    tSirMacHTChannelWidth ch_width;
-    enum sir_sme_phy_mode mode;
-    uint8_t              max_supp_idx;
-    uint8_t              max_ext_idx;
-    uint8_t              max_mcs_idx;
-    uint8_t              rx_mcs_map;
-    uint8_t              tx_mcs_map;
 } tSap_StationAssocReassocCompleteEvent;
 
 typedef struct sap_StationDisassocCompleteEvent_s {
@@ -398,18 +384,6 @@ typedef struct sap_ChSelected_s {
 } tSap_ChSelectedEvent;
 
 /**
- * struct tsap_acs_scan_complete_event - acs scan complete event
- * @status: status of acs scan
- * @channellist: acs scan channels
- * @num_of_channels: number of channels
- */
-struct tsap_acs_scan_complete_event{
-    uint8_t status;
-    uint8_t *channellist;
-    uint8_t num_of_channels;
-};
-
-/**
  * struct sap_ch_change_ind - channel change indication
  * @new_chan: channel to change
  */
@@ -443,7 +417,6 @@ typedef struct sap_Event_s {
         tSap_DfsNolInfo                           sapDfsNolInfo;    /*eSAP_DFS_NOL_XXX */
         /*eSAP_ACS_CHANNEL_SELECTED */
         tSap_ChSelectedEvent                      sapChSelected;
-        struct tsap_acs_scan_complete_event       sap_acs_scan_comp;
         struct sap_ch_change_ind                  sap_chan_cng_ind;
     } sapevt;
 } tSap_Event, *tpSap_Event;
@@ -483,34 +456,6 @@ struct sap_acs_cfg {
     uint8_t    vht_seg1_center_ch;
 };
 
-
-/*
- * enum sap_acs_dfs_mode- state of DFS mode
- * @ACS_DFS_MODE_NONE: DFS mode attribute is not valid
- * @ACS_DFS_MODE_ENABLE:  DFS mode is enabled
- * @ACS_DFS_MODE_DISABLE: DFS mode is disabled
- * @ACS_DFS_MODE_DEPRIORITIZE: Deprioritize DFS channels in scanning
- */
-enum  sap_acs_dfs_mode {
-	ACS_DFS_MODE_NONE,
-	ACS_DFS_MODE_ENABLE,
-	ACS_DFS_MODE_DISABLE,
-	ACS_DFS_MODE_DEPRIORITIZE
-};
-
-/*
- * enum vendor_ie_access_policy- access policy
- * @ACCESS_POLICY_NONE: access policy attribute is not valid
- * @ACCESS_POLICY_RESPOND_IF_IE_IS_PRESENT: respond to probe req/assoc req
- *  only if ie is present
- * @ACCESS_POLICY_DONOT_RESPOND_IF_IE_IS_PRESENT: do not respond to probe req/
- *  assoc req if ie is present
- */
-enum vendor_ie_access_policy {
-	ACCESS_POLICY_NONE,
-	ACCESS_POLICY_RESPOND_IF_IE_IS_PRESENT,
-	ACCESS_POLICY_DONOT_RESPOND_IF_IE_IS_PRESENT,
-};
 
 typedef struct sap_Config {
     tSap_SSIDInfo_t SSIDinfo;
@@ -555,7 +500,6 @@ typedef struct sap_Config {
     eCsrBand        scanBandPreference;
     v_BOOL_t        enOverLapCh;
     v_U16_t         acsBandSwitchThreshold;
-    uint32_t        auto_channel_select_weight;
     struct sap_acs_cfg acs_cfg;
 #ifdef WLAN_FEATURE_11W
     v_BOOL_t        mfpRequired;
@@ -574,24 +518,7 @@ typedef struct sap_Config {
     v_U16_t    probeRespBcnIEsLen;
     v_PVOID_t  pProbeRespBcnIEsBuffer; /* buffer for addn ies comes from hostapd*/
     uint8_t   sap_dot11mc;      /* Specify if 11MC is enabled or disabled*/
-    enum sap_acs_dfs_mode acs_dfs_mode;
-    uint16_t beacon_tx_rate;
-    uint8_t *vendor_ie;
-    enum vendor_ie_access_policy vendor_ie_access_policy;
-    uint16_t sta_inactivity_timeout;
-    uint16_t tx_pkt_fail_cnt_threshold;
-    uint8_t short_retry_limit;
-    uint8_t long_retry_limit;
-    uint8_t ampdu_size;
-    tSirMacRateSet  supported_rates;
-    tSirMacRateSet  extended_rates;
-    eCsrBand   target_band;
-    uint16_t  sub20_channelwidth;
-    /* beacon count before channel switch */
-    uint8_t          sap_chanswitch_beacon_cnt;
-    uint8_t          sap_chanswitch_mode;
-    bool             dfs_beacon_tx_enhanced;
-    uint16_t         reduced_beacon_interval;
+
 } tsap_Config_t;
 
 #ifdef FEATURE_WLAN_AP_AP_ACS_OPTIMIZE
@@ -702,12 +629,6 @@ typedef struct sSapDfsInfo
      */
     v_U8_t              disable_dfs_ch_switch;
     uint16_t            tx_leakage_threshold;
-    uint8_t             new_sub20_channelwidth;
-    /* beacon count before channel switch */
-    uint8_t            sap_ch_switch_beacon_cnt;
-    uint8_t            sap_ch_switch_mode;
-    bool               dfs_beacon_tx_enhanced;
-    uint16_t           reduced_beacon_interval;
 } tSapDfsInfo;
 
 typedef struct tagSapCtxList
@@ -854,19 +775,14 @@ typedef struct
 } sapSafeChannelType;
 #endif //FEATURE_WLAN_CH_AVOID
 
+#ifdef WLAN_FEATURE_MBSSID
 void sapCleanupChannelList(v_PVOID_t sapContext);
+#else
+void sapCleanupChannelList(void);
+#endif
 
 void sapCleanupAllChannelList(void);
 
-#ifdef FEATURE_WLAN_MCC_TO_SCC_SWITCH
-/**
- * is_auto_channel_select() - is channel AUTO_CHANNEL_SELECT
- * @p_vos_gctx: Pointer to ptSapContext
- *
- * Return: true on AUTO_CHANNEL_SELECT, false otherwise
- */
-bool is_auto_channel_select(v_PVOID_t p_vos_gctx);
-#endif
 /*==========================================================================
   FUNCTION    WLANSAP_Set_WpsIe
 
@@ -1016,7 +932,15 @@ typedef v_PVOID_t tSapHandle, *ptSapHandle;
 
   SIDE EFFECTS
 ============================================================================*/
-v_PVOID_t WLANSAP_Open(v_PVOID_t  pvosGCtx);
+#ifdef WLAN_FEATURE_MBSSID
+v_PVOID_t
+#else
+VOS_STATUS
+#endif
+WLANSAP_Open
+(
+    v_PVOID_t  pvosGCtx
+);
 
 /*==========================================================================
   FUNCTION    WLANSAP_Start
@@ -1046,10 +970,7 @@ v_PVOID_t WLANSAP_Open(v_PVOID_t  pvosGCtx);
 VOS_STATUS
 WLANSAP_Start
 (
-    v_PVOID_t  pvosGCtx,
-    tVOS_CON_MODE mode,
-    uint8_t *addr,
-    uint32_t *session_id
+    v_PVOID_t  pvosGCtx
 );
 
 /*==========================================================================
@@ -2458,23 +2379,7 @@ wlansap_get_phymode(v_PVOID_t pctx);
 VOS_STATUS wlansap_set_tx_leakage_threshold(tHalHandle hal,
 			uint16 tx_leakage_threshold);
 
-VOS_STATUS wlansap_get_chan_width(void *pvosctx,
-			uint32_t *pchanwidth);
 
-VOS_STATUS wlansap_set_invalid_session(v_PVOID_t pctx);
-
-#ifdef FEATURE_WLAN_SUB_20_MHZ
-VOS_STATUS
-WLANSAP_set_sub20_channelwidth_with_csa(
-	void *vos_ctx_ptr, uint32_t chan_width);
-#else
-static inline VOS_STATUS
-WLANSAP_set_sub20_channelwidth_with_csa(
-	void *vos_ctx_ptr, uint32_t chan_width)
-{
-	return VOS_STATUS_SUCCESS;
-}
-#endif
 #ifdef __cplusplus
  }
 #endif

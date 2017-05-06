@@ -196,8 +196,6 @@ extern v_BOOL_t hdd_IsEAPOLPacket( vos_pkt_t *pVosPacket );
 VOS_STATUS hdd_get_peer_sta_id(hdd_station_ctx_t *sta_ctx,
                                v_MACADDR_t *peer_mac_addr, uint8_t *sta_id);
 
-int hdd_get_peer_idx(hdd_station_ctx_t *sta_ctx, v_MACADDR_t *addr);
-
 /**============================================================================
   @brief hdd_flush_ibss_tx_queues() -
                     Flush tx queues in IBSS mode
@@ -274,7 +272,6 @@ const char *hdd_reason_type_to_string(enum netif_reason_type reason);
 const char *hdd_action_type_to_string(enum netif_action_type action);
 void wlan_hdd_netif_queue_control(hdd_adapter_t *adapter,
 		enum netif_action_type action, enum netif_reason_type reason);
-void wlan_hdd_classify_pkt(struct sk_buff *skb);
 
 #ifdef QCA_PKT_PROTO_TRACE
 void hdd_dhcp_pkt_trace_buf_update(struct sk_buff *skb, int is_transmission,

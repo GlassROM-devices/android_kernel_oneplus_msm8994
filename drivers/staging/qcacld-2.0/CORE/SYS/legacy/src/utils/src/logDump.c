@@ -92,15 +92,14 @@ logDump.c
 
 static int debug;
 
-int
+    void
 logPrintf(tpAniSirGlobal pMac, tANI_U32 cmd, tANI_U32 arg1, tANI_U32 arg2, tANI_U32 arg3, tANI_U32 arg4)
 {
     static tANI_U8 buf[MAX_LOGDUMP_SIZE + MAX_OVERFLOW_MSG];
-
+    tANI_U16 bufLen;
     pMac->gCurrentLogSize = 0;
 
-    return logRtaiDump(pMac, cmd, arg1, arg2, arg3, arg4, buf);
-
+    bufLen = (tANI_U16)logRtaiDump(pMac, cmd, arg1, arg2, arg3, arg4, buf);
 }
 
 /**
@@ -299,17 +298,17 @@ char * dump_cfg_group_get( tpAniSirGlobal pMac, tANI_U32 arg1, tANI_U32 arg2, tA
 
     (void) arg3; (void) arg4;
 
-    if (arg1 < WNI_CFG_MAX) {
+    if (arg1 < CFG_PARAM_MAX_NUM) {
         startId = arg1;
     } else {
-        p += log_sprintf( pMac, p, "Start CFGID must be less than %d\n", WNI_CFG_MAX);
+        p += log_sprintf( pMac, p, "Start CFGID must be less than %d\n", CFG_PARAM_MAX_NUM);
         return p;
     }
 
-    if ((arg2 == 0) || (arg2 > WNI_CFG_MAX))
+    if ((arg2 == 0) || (arg2 > CFG_PARAM_MAX_NUM))
         arg2 = 30;
 
-    endId = ((startId + arg2) < WNI_CFG_MAX) ? (startId + arg2) : WNI_CFG_MAX;
+    endId = ((startId + arg2) < CFG_PARAM_MAX_NUM) ? (startId + arg2) : CFG_PARAM_MAX_NUM;
 
     for (i=startId; i < endId; i++)
         Log_getCfg(pMac, (tANI_U16) i);
@@ -437,14 +436,12 @@ int logRtaiDump( tpAniSirGlobal pMac, tANI_U32 cmd, tANI_U32 arg1, tANI_U32 arg2
                        pEntry->func(pMac, arg1, arg2, arg3, arg4, p);
                    } else {
                        p += log_sprintf( pMac,p, "Cmd not supported\n");
-                       return -1;
                    }
                    break;
                }
            }
        } else {
            p += log_sprintf( pMac,p, "Cmd not found \n");
-           return -1;
        }
     }
     if (debug)

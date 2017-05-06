@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2016 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2015 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -126,8 +126,8 @@ limGetBssDescription( tpAniSirGlobal pMac, tSirBssDescription *pBssDescription,
         return eSIR_FAILURE;
 
     // Extract timer
-    vos_mem_copy( (tANI_U8 *) (&pBssDescription->scansystimensec),
-                               pBuf, sizeof(v_TIME_t));
+    vos_mem_copy( (tANI_U8 *) (&pBssDescription->scanSysTimeMsec),
+                  pBuf, sizeof(v_TIME_t));
     pBuf += sizeof(v_TIME_t);
     len  -= sizeof(v_TIME_t);
     if (limCheckRemainingLength(pMac, len) == eSIR_FAILURE)
@@ -692,19 +692,6 @@ limStartBssReqSerDes(tpAniSirGlobal pMac, tpSirSmeStartBssReq pStartBssReq, tANI
 
     /* extract sap_dot11mc */
     pStartBssReq->sap_dot11mc = *pBuf++;
-    len--;
-
-    /* extract vendor_vht_for_24ghz_sap */
-    pStartBssReq->vendor_vht_for_24ghz_sap = *pBuf;
-    len -= sizeof(pStartBssReq->vendor_vht_for_24ghz_sap);
-    pBuf += sizeof(pStartBssReq->vendor_vht_for_24ghz_sap);
-
-    vos_mem_copy(&(pStartBssReq->beacon_tx_rate), pBuf,
-            sizeof(pStartBssReq->beacon_tx_rate));
-    len -= sizeof(pStartBssReq->beacon_tx_rate);
-    pBuf += sizeof(pStartBssReq->beacon_tx_rate);
-
-    pStartBssReq->sub20_channelwidth = *pBuf++;
     len--;
 
     if (len)
@@ -1363,9 +1350,6 @@ limJoinReqSerDes(tpAniSirGlobal pMac, tpSirSmeJoinReq pJoinReq, tANI_U8 *pBuf)
                        pJoinReq->bssDescription.length + 2);)
     pBuf += lenUsed;
     len -= lenUsed;
-
-    pJoinReq->sub20_channelwidth = *pBuf++;
-    len--;
 
     return eSIR_SUCCESS;
 } /*** end limJoinReqSerDes() ***/

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2016 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -40,7 +40,8 @@
 #include "wniApi.h"
 #include "sirCommon.h"
 #include "aniGlobal.h"
-#include "wni_cfg.h"
+
+#include "wniCfgSta.h"
 #include "sysDef.h"
 #include "cfgApi.h"
 
@@ -554,26 +555,28 @@ limSendSmeJoinReassocRsp(tpAniSirGlobal pMac, tANI_U16 msgType,
             }
 
 #ifdef FEATURE_WLAN_MCC_TO_SCC_SWITCH
-            pSirSmeJoinRsp->HTProfile.htSupportedChannelWidthSet =
-                                  psessionEntry->htSupportedChannelWidthSet;
-            pSirSmeJoinRsp->HTProfile.htRecommendedTxWidthSet =
-                                  psessionEntry->htRecommendedTxWidthSet;
-            pSirSmeJoinRsp->HTProfile.htSecondaryChannelOffset =
-                                  psessionEntry->htSecondaryChannelOffset;
-            pSirSmeJoinRsp->HTProfile.dot11mode =
-                                  psessionEntry->dot11mode;
-            pSirSmeJoinRsp->HTProfile.htCapability =
-                                  psessionEntry->htCapability;
+            if (psessionEntry->cc_switch_mode != VOS_MCC_TO_SCC_SWITCH_DISABLE) {
+                pSirSmeJoinRsp->HTProfile.htSupportedChannelWidthSet =
+                                      psessionEntry->htSupportedChannelWidthSet;
+                pSirSmeJoinRsp->HTProfile.htRecommendedTxWidthSet =
+                                      psessionEntry->htRecommendedTxWidthSet;
+                pSirSmeJoinRsp->HTProfile.htSecondaryChannelOffset =
+                                      psessionEntry->htSecondaryChannelOffset;
+                pSirSmeJoinRsp->HTProfile.dot11mode =
+                                      psessionEntry->dot11mode;
+                pSirSmeJoinRsp->HTProfile.htCapability =
+                                      psessionEntry->htCapability;
 #ifdef WLAN_FEATURE_11AC
-            pSirSmeJoinRsp->HTProfile.vhtCapability =
-                                  psessionEntry->vhtCapability;
-            pSirSmeJoinRsp->HTProfile.vhtTxChannelWidthSet =
-                                  psessionEntry->vhtTxChannelWidthSet;
-            pSirSmeJoinRsp->HTProfile.apCenterChan =
-                                  psessionEntry->apCenterChan;
-            pSirSmeJoinRsp->HTProfile.apChanWidth =
-                                  psessionEntry->apChanWidth;
+                pSirSmeJoinRsp->HTProfile.vhtCapability =
+                                      psessionEntry->vhtCapability;
+                pSirSmeJoinRsp->HTProfile.vhtTxChannelWidthSet =
+                                      psessionEntry->vhtTxChannelWidthSet;
+                pSirSmeJoinRsp->HTProfile.apCenterChan =
+                                      psessionEntry->apCenterChan;
+                pSirSmeJoinRsp->HTProfile.apChanWidth =
+                                      psessionEntry->apChanWidth;
 #endif
+            }
 #endif
         }
         else
@@ -780,8 +783,8 @@ limSendSmeStartBssRsp(tpAniSirGlobal pMac,
                        * pointer to ieFields.
                        */
                       pSirSmeRsp->bssDescription.length =
-                              ((uintptr_t)OFFSET_OF(tSirBssDescription, ieFields))
-                               - sizeof(pSirSmeRsp->bssDescription.length) + ieLen;
+                              sizeof(pSirSmeRsp->bssDescription) -
+                              sizeof(tANI_U16) - sizeof(tANI_U32) + ieLen;
                       /*
                        * This is the size of the message, subtract the size of
                        * the pointer to ieFields
@@ -789,26 +792,29 @@ limSendSmeStartBssRsp(tpAniSirGlobal pMac,
                       size += ieLen - sizeof(tANI_U32);
                 }
 #ifdef FEATURE_WLAN_MCC_TO_SCC_SWITCH
-                pSirSmeRsp->HTProfile.htSupportedChannelWidthSet =
-                                  psessionEntry->htSupportedChannelWidthSet;
-                pSirSmeRsp->HTProfile.htRecommendedTxWidthSet =
-                                  psessionEntry->htRecommendedTxWidthSet;
-                pSirSmeRsp->HTProfile.htSecondaryChannelOffset =
-                                  psessionEntry->htSecondaryChannelOffset;
-                pSirSmeRsp->HTProfile.dot11mode =
-                                  psessionEntry->dot11mode;
-                pSirSmeRsp->HTProfile.htCapability =
-                                  psessionEntry->htCapability;
+                if (psessionEntry->cc_switch_mode
+                                             != VOS_MCC_TO_SCC_SWITCH_DISABLE) {
+                    pSirSmeRsp->HTProfile.htSupportedChannelWidthSet =
+                                      psessionEntry->htSupportedChannelWidthSet;
+                    pSirSmeRsp->HTProfile.htRecommendedTxWidthSet =
+                                      psessionEntry->htRecommendedTxWidthSet;
+                    pSirSmeRsp->HTProfile.htSecondaryChannelOffset =
+                                      psessionEntry->htSecondaryChannelOffset;
+                    pSirSmeRsp->HTProfile.dot11mode =
+                                      psessionEntry->dot11mode;
+                    pSirSmeRsp->HTProfile.htCapability =
+                                      psessionEntry->htCapability;
 #ifdef WLAN_FEATURE_11AC
-                pSirSmeRsp->HTProfile.vhtCapability =
-                                  psessionEntry->vhtCapability;
-                pSirSmeRsp->HTProfile.vhtTxChannelWidthSet =
-                                  psessionEntry->vhtTxChannelWidthSet;
-                pSirSmeRsp->HTProfile.apCenterChan =
-                                  psessionEntry->apCenterChan;
-                pSirSmeRsp->HTProfile.apChanWidth =
-                                  psessionEntry->apChanWidth;
+                    pSirSmeRsp->HTProfile.vhtCapability =
+                                      psessionEntry->vhtCapability;
+                    pSirSmeRsp->HTProfile.vhtTxChannelWidthSet =
+                                      psessionEntry->vhtTxChannelWidthSet;
+                    pSirSmeRsp->HTProfile.apCenterChan =
+                                      psessionEntry->apCenterChan;
+                    pSirSmeRsp->HTProfile.apChanWidth =
+                                      psessionEntry->apChanWidth;
 #endif
+                }
 #endif
         }
     }
@@ -1511,7 +1517,6 @@ limSendSmeDisassocNtf(tpAniSirGlobal pMac,
     tANI_U8                     *pBuf;
     tSirSmeDisassocRsp      *pSirSmeDisassocRsp;
     tSirSmeDisassocInd      *pSirSmeDisassocInd;
-    tSirSmeDisConDoneInd    *pSirSmeDisConDoneInd;
     tANI_U32 *pMsg;
     bool failure = false;
 
@@ -1522,6 +1527,12 @@ limSendSmeDisassocNtf(tpAniSirGlobal pMac,
 
     switch (disassocTrigger)
     {
+        case eLIM_PEER_ENTITY_DISASSOC:
+            if (reasonCode != eSIR_SME_STA_NOT_ASSOCIATED) {
+                failure = true;
+                goto error;
+            }
+
         case eLIM_HOST_DISASSOC:
             /**
              * Disassociation response due to
@@ -1571,41 +1582,6 @@ limSendSmeDisassocNtf(tpAniSirGlobal pMac,
                                       psessionEntry, (tANI_U16)reasonCode, 0);
 #endif
             pMsg = (tANI_U32*) pSirSmeDisassocRsp;
-            break;
-
-        case eLIM_PEER_ENTITY_DISASSOC:
-        case eLIM_LINK_MONITORING_DISASSOC:
-            pSirSmeDisConDoneInd =
-                                  vos_mem_malloc(sizeof(tSirSmeDisConDoneInd));
-            if ( NULL == pSirSmeDisConDoneInd )
-            {
-                /* Log error */
-                limLog(pMac, LOGP,
-                       FL("call to AllocateMemory failed for"
-                          "disconnect indication"));
-                return;
-            }
-            vos_mem_zero(pSirSmeDisConDoneInd, sizeof(tSirSmeDisConDoneInd));
-            limLog(pMac, LOG1,
-                   FL("send  eWNI_SME_DISCONNECT_DONE_IND with retCode: %d"),
-                   reasonCode);
-            pSirSmeDisConDoneInd->messageType = eWNI_SME_DISCONNECT_DONE_IND;
-            pSirSmeDisConDoneInd->length      = sizeof(tSirSmeDisConDoneInd);
-            vos_mem_copy(pSirSmeDisConDoneInd->peerMacAddr, peerMacAddr,
-                         sizeof(tSirMacAddr));
-            pSirSmeDisConDoneInd->sessionId   = smesessionId;
-
-            /*
-             * Instead of sending deauth reason code as 505 which is internal
-             * value to driver(eSIR_SME_LOST_LINK_WITH_PEER_RESULT_CODE).
-             * Send reason code as zero to Supplicant
-             */
-            if (reasonCode == eSIR_SME_LOST_LINK_WITH_PEER_RESULT_CODE)
-                pSirSmeDisConDoneInd->reasonCode = 0;
-            else
-                pSirSmeDisConDoneInd->reasonCode = reasonCode;
-
-            pMsg = (tANI_U32 *)pSirSmeDisConDoneInd;
             break;
 
         default:
@@ -1698,7 +1674,7 @@ limSendSmeDisassocInd(tpAniSirGlobal pMac, tpDphHashNode pStaDs,tpPESession pses
 
     pSirSmeDisassocInd->sessionId     =  psessionEntry->smeSessionId;
     pSirSmeDisassocInd->transactionId =  psessionEntry->transactionId;
-    pSirSmeDisassocInd->statusCode    =  eSIR_SME_DEAUTH_STATUS;
+    pSirSmeDisassocInd->statusCode    =  pStaDs->mlmStaContext.disassocReason;
     pSirSmeDisassocInd->reasonCode    =  pStaDs->mlmStaContext.disassocReason;
 
     vos_mem_copy( pSirSmeDisassocInd->bssId, psessionEntry->bssId, sizeof(tSirMacAddr));
@@ -2004,7 +1980,6 @@ limSendSmeDeauthNtf(tpAniSirGlobal pMac, tSirMacAddr peerMacAddr, tSirResultCode
     tANI_U8             *pBuf;
     tSirSmeDeauthRsp    *pSirSmeDeauthRsp;
     tSirSmeDeauthInd    *pSirSmeDeauthInd;
-    tSirSmeDisConDoneInd *pSirSmeDisConDoneInd;
     tpPESession         psessionEntry;
     tANI_U8             sessionId;
     tANI_U32            *pMsg;
@@ -2012,6 +1987,9 @@ limSendSmeDeauthNtf(tpAniSirGlobal pMac, tSirMacAddr peerMacAddr, tSirResultCode
     psessionEntry = peFindSessionByBssid(pMac,peerMacAddr,&sessionId);
     switch (deauthTrigger)
     {
+        case eLIM_PEER_ENTITY_DEAUTH:
+            return;
+
         case eLIM_HOST_DEAUTH:
             /**
              * Deauthentication response to host triggered
@@ -2043,42 +2021,6 @@ limSendSmeDeauthNtf(tpAniSirGlobal pMac, tSirMacAddr peerMacAddr, tSirResultCode
                                       psessionEntry, 0, (tANI_U16)reasonCode);
 #endif
             pMsg = (tANI_U32*)pSirSmeDeauthRsp;
-
-            break;
-
-        case eLIM_PEER_ENTITY_DEAUTH:
-        case eLIM_LINK_MONITORING_DEAUTH:
-            pSirSmeDisConDoneInd =
-                                vos_mem_malloc(sizeof(tSirSmeDisConDoneInd));
-            if ( NULL == pSirSmeDisConDoneInd )
-            {
-                /* Log error */
-                limLog(pMac, LOGP,
-                       FL("call to AllocateMemory failed for"
-                          "disconnect indication"));
-                return;
-            }
-
-            vos_mem_zero(pSirSmeDisConDoneInd, sizeof(tSirSmeDisConDoneInd));
-            limLog(pMac, LOG1,
-                   FL("send  eWNI_SME_DISCONNECT_DONE_IND withretCode: %d"),
-                   reasonCode);
-            pSirSmeDisConDoneInd->messageType = eWNI_SME_DISCONNECT_DONE_IND;
-            pSirSmeDisConDoneInd->length      = sizeof(tSirSmeDisConDoneInd);
-            pSirSmeDisConDoneInd->sessionId   = smesessionId;
-
-            /*
-             * Instead of sending deauth reason code as 505 which is internal
-             * value to driver(eSIR_SME_LOST_LINK_WITH_PEER_RESULT_CODE).
-             * Send reason code as zero to Supplicant
-             */
-            if (reasonCode == eSIR_SME_LOST_LINK_WITH_PEER_RESULT_CODE)
-                pSirSmeDisConDoneInd->reasonCode = 0;
-            else
-                pSirSmeDisConDoneInd->reasonCode = reasonCode;
-            pMsg = (tANI_U32 *)pSirSmeDisConDoneInd;
-            vos_mem_copy(pSirSmeDisConDoneInd->peerMacAddr, peerMacAddr,
-                         sizeof(tSirMacAddr));
 
             break;
 
@@ -3038,7 +2980,7 @@ void limHandleCSAoffloadMsg(tpAniSirGlobal pMac,tpSirMsgQ MsgQ)
 
       } else
 #endif
-      if (psessionEntry->htSupportedChannelWidthSet) {
+      if (psessionEntry->htCapability) {
           psessionEntry->gLimChannelSwitch.secondarySubBand =
                                              limSelectCBMode(pStaDs,
                                                  psessionEntry,
@@ -3051,9 +2993,6 @@ void limHandleCSAoffloadMsg(tpAniSirGlobal pMac,tpSirMsgQ MsgQ)
       }
       limLog(pMac, LOG1, FL("secondarySubBand = %d"),
              psessionEntry->gLimChannelSwitch.secondarySubBand);
-
-      psessionEntry->lim_sub20_channel_switch_bandwidth =
-                         csa_params->new_sub20_channelwidth;
 
       limPrepareFor11hChannelSwitch(pMac, psessionEntry);
       pCsaOffloadInd = vos_mem_malloc(sizeof(tSmeCsaOffloadInd));
@@ -3456,15 +3395,6 @@ limProcessBeaconTxSuccessInd(tpAniSirGlobal pMac, tANI_U16 msgType, void *event)
           * Send the next beacon with updated CSA IE count
           */
           limSendDfsChanSwIEUpdate(pMac, psessionEntry);
-
-          if (pMac->sap.SapDfsInfo.dfs_beacon_tx_enhanced) {
-              /* Send Action frame after updating the beacon */
-              lim_send_chan_switch_action_frame(pMac,
-                  psessionEntry->gLimChannelSwitch.primaryChannel,
-                  psessionEntry->gLimChannelSwitch.secondarySubBand,
-                  psessionEntry);
-          }
-
           /* Decrement the IE count */
           psessionEntry->gLimChannelSwitch.switchCount--;
       }

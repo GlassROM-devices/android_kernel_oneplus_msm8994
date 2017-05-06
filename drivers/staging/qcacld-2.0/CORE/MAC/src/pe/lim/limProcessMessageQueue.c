@@ -39,7 +39,8 @@
 #include "palTypes.h"
 #include "wniApi.h"
 #include "wlan_qct_wda.h"
-#include "wni_cfg.h"
+
+#include "wniCfgSta.h"
 #include "cfgApi.h"
 #include "sirCommon.h"
 #include "utilsApi.h"
@@ -74,7 +75,6 @@
 #include "vos_memory.h"
 #include "nan_datapath.h"
 
-#define CHECK_BIT(value, mask)    ((value) & (1 << (mask)))
 void limLogSessionStates(tpAniSirGlobal pMac);
 
 /** -------------------------------------------------------------
@@ -244,14 +244,14 @@ __limExtScanForwardBcnProbeRsp(tpAniSirGlobal pmac, uint8_t *rx_pkt_info,
 	tSirMsgQ                     mmh_msg;
 	tpSirMacMgmtHdr              hdr;
 
-	result = vos_mem_malloc(sizeof(*result) + ie_len + ie_len);
+	result = vos_mem_malloc(sizeof(*result) + ie_len);
 	if (NULL == result) {
 		limLog(pmac, LOGE, FL("Memory allocation failed"));
 		return;
 	}
 	hdr = WDA_GET_RX_MAC_HEADER(rx_pkt_info);
 	body = WDA_GET_RX_MPDU_DATA(rx_pkt_info);
-	vos_mem_zero(result, sizeof(*result) + ie_len + ie_len);
+	vos_mem_zero(result, sizeof(*result) + ie_len);
 
 	/* Received frame does not have request id, hence set 0 */
 	result->requestId = 0;
@@ -274,9 +274,6 @@ __limExtScanForwardBcnProbeRsp(tpAniSirGlobal pmac, uint8_t *rx_pkt_info,
 	/* Copy IE fields */
 	vos_mem_copy((uint8_t *) &result->ap.ieData,
 			body + SIR_MAC_B_PR_SSID_OFFSET, ie_len);
-
-	limCollectBssDescription(pmac, &result->bss_description,
-			frame, rx_pkt_info, eANI_BOOLEAN_FALSE);
 
 	mmh_msg.type = msg_type;
 	mmh_msg.bodyptr = result;
@@ -735,18 +732,16 @@ limHandle80211Frames(tpAniSirGlobal pMac, tpSirMsgQ limMsg, tANI_U8 *pDeferMsg)
     VOS_TRACE_HEX_DUMP(VOS_MODULE_ID_PE, VOS_TRACE_LEVEL_ERROR, pHdr,
                        WDA_GET_RX_MPDU_HEADER_LEN(pRxPacketInfo));
 #endif
-    if ((fc.type == SIR_MAC_MGMT_FRAME) &&
-            (fc.subType != SIR_MAC_MGMT_BEACON))
-    {
-         limLog(pMac, LOG1, FL("RX MGMT - Type %hu, SubType %hu, "
-                "BSSID: "MAC_ADDRESS_STR " RSSI %d Seq.no %d"),
-                fc.type, fc.subType, MAC_ADDR_ARRAY(pHdr->bssId),
-                (uint8_t)abs(
-                (tANI_S8)WDA_GET_RX_RSSI_NORMALIZED(pRxPacketInfo)),
-                ((pHdr->seqControl.seqNumHi << 4) |
-                               (pHdr->seqControl.seqNumLo)));
-     }
-
+    if (pMac->fEnableDebugLog & 0x1) {
+        if ((fc.type == SIR_MAC_MGMT_FRAME) &&
+                (fc.subType != SIR_MAC_MGMT_PROBE_REQ) &&
+                (fc.subType != SIR_MAC_MGMT_PROBE_RSP) &&
+                (fc.subType != SIR_MAC_MGMT_BEACON))
+        {
+            limLog(pMac, LOGE, FL("RX MGMT - Type %hu, SubType %hu"),
+                    fc.type, fc.subType);
+        }
+    }
 #ifdef FEATURE_WLAN_EXTSCAN
     if (WMA_IS_EXTSCAN_SCAN_SRC(pRxPacketInfo) ||
         WMA_IS_EPNO_SCAN_SRC(pRxPacketInfo)) {
@@ -1122,6 +1117,29 @@ void limMessageProcessor(tpAniSirGlobal pMac, tpSirMsgQ limMsg)
 }
 
 #ifdef FEATURE_OEM_DATA_SUPPORT
+
+void limOemDataRspHandleResumeLinkRsp(tpAniSirGlobal pMac, eHalStatus status, tANI_U32* mlmOemDataRsp)
+{
+    if(status != eHAL_STATUS_SUCCESS)
+    {
+        limLog(pMac, LOGE, FL("OEM Data Rsp failed to get the response for resume link"));
+    }
+
+    if(NULL != pMac->lim.gpLimMlmOemDataReq)
+    {
+        vos_mem_free(pMac->lim.gpLimMlmOemDataReq);
+        pMac->lim.gpLimMlmOemDataReq = NULL;
+    }
+
+    //"Failure" status doesn't mean that Oem Data Rsp did not happen
+    //and hence we need to respond to upper layers. Only Resume link is failed, but
+    //we got the oem data response already.
+    //Post the meessage to MLM
+    limPostSmeMessage(pMac, LIM_MLM_OEM_DATA_CNF, (tANI_U32*)(mlmOemDataRsp));
+
+    return;
+}
+
 void limProcessOemDataRsp(tpAniSirGlobal pMac, tANI_U32* body)
 {
     tpLimMlmOemDataRsp mlmOemDataRsp = NULL;
@@ -1366,7 +1384,6 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
         case eWNI_SME_TDLS_LINK_ESTABLISH_REQ:
 #endif
         case eWNI_SME_RESET_AP_CAPS_CHANGED:
-        case eWNI_SME_UPDATE_ACCESS_POLICY_VENDOR_IE:
             // These messages are from HDD
             limProcessNormalHddMsg(pMac, limMsg, true);  //need to response to hdd
             break;
@@ -1443,11 +1460,10 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
         case eWNI_SME_GET_TSM_STATS_REQ:
 #endif /* FEATURE_WLAN_ESE && FEATURE_WLAN_ESE_UPLOAD */
         case eWNI_SME_EXT_CHANGE_CHANNEL:
-        case eWNI_SME_ROAM_SCAN_OFFLOAD_REQ:
+        case eWNI_SME_ROAM_RESTART_REQ:
         case eWNI_SME_REGISTER_MGMT_FRAME_CB:
         case eWNI_SME_NDP_INITIATOR_REQ:
         case eWNI_SME_NDP_RESPONDER_REQ:
-        case eWNI_SME_NDP_END_REQ:
         case eWNI_SME_REGISTER_P2P_ACK_CB:
             // These messages are from HDD
             limProcessNormalHddMsg(pMac, limMsg, false);   //no need to response to hdd
@@ -1815,6 +1831,16 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
             limTriggerBackgroundScan(pMac);
             break;
 
+
+        case SIR_LIM_HASH_MISS_THRES_TIMEOUT:
+
+            /*
+            ** clear the credit to the send disassociate frame bucket
+            **/
+
+            pMac->lim.gLimDisassocFrameCredit = 0;
+            break;
+
         case SIR_LIM_CNF_WAIT_TIMEOUT:
 
             /*
@@ -2049,11 +2075,8 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
         {
 #ifdef WLAN_ACTIVEMODE_OFFLOAD_FEATURE
             tpPESession     psessionEntry;
-            tANI_U8 session_id;
-            tSirSetActiveModeSetBncFilterReq *bcn_filter_req =
-               (tSirSetActiveModeSetBncFilterReq *)limMsg->bodyptr;
-            psessionEntry = peFindSessionByBssid(pMac, bcn_filter_req->bssid,
-                                                 &session_id);
+            tANI_U8 sessionId = (tANI_U8)limMsg->bodyval ;
+            psessionEntry = &pMac->lim.gpSession[sessionId];
             if(psessionEntry != NULL && IS_ACTIVEMODE_OFFLOAD_FEATURE_ENABLE)
             {
                // sending beacon filtering information down to HAL
@@ -2072,8 +2095,6 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
         {
             tpPESession     psessionEntry;
             tANI_U8         sessionId;
-            tDphHashNode   *sta_ds = NULL;
-            int i, aid;
             tTdlsLinkEstablishParams *pTdlsLinkEstablishParams;
             pTdlsLinkEstablishParams = (tTdlsLinkEstablishParams*) limMsg->bodyptr;
 
@@ -2094,33 +2115,11 @@ limProcessMessages(tpAniSirGlobal pMac, tpSirMsgQ  limMsg)
             }
             else
             {
-                for (i = 0;
-                     i < sizeof(psessionEntry->peerAIDBitmap)
-                                           / sizeof(uint32_t); i++) {
-                    for (aid = 0; aid < (sizeof(tANI_U32) << 3); aid++) {
-                        if (CHECK_BIT(psessionEntry->peerAIDBitmap[i], aid)) {
-                            sta_ds = dphGetHashEntry(pMac,
-                                           (aid + i*(sizeof(tANI_U32) << 3)),
-                                            &psessionEntry->dph.dphHashTable);
-                              if ((sta_ds) &&
-                                   (pTdlsLinkEstablishParams->staIdx ==
-                                                       sta_ds->staIndex))
-                                  goto send_link_resp;
-                        }
-                    }
-                }
-send_link_resp:
-                if (sta_ds)
-                    limSendSmeTdlsLinkEstablishReqRsp(pMac,
-                                              psessionEntry->smeSessionId,
-                                              sta_ds->staAddr,
-                                              sta_ds,
-                                              pTdlsLinkEstablishParams->status);
-                else
-                    limSendSmeTdlsLinkEstablishReqRsp(pMac,
-                                              psessionEntry->smeSessionId,
-                                              NULL, NULL,
-                                              pTdlsLinkEstablishParams->status);
+                limSendSmeTdlsLinkEstablishReqRsp(pMac,
+                                                  psessionEntry->smeSessionId,
+                                                  NULL,
+                                                  NULL,
+                                                  pTdlsLinkEstablishParams->status) ;
             }
             vos_mem_free((v_VOID_t *)(limMsg->bodyptr));
             limMsg->bodyptr = NULL;
@@ -2130,10 +2129,6 @@ send_link_resp:
 
     case WDA_RX_SCAN_EVENT:
         limProcessRxScanEvent(pMac, limMsg->bodyptr);
-        break;
-
-    case WDA_RX_CHN_STATUS_EVENT:
-        lim_process_rx_channel_status_event(pMac, limMsg->bodyptr);
         break;
 
     case WDA_IBSS_PEER_INACTIVITY_IND:
@@ -2220,8 +2215,6 @@ send_link_resp:
     case SIR_HAL_NDP_INDICATION:
     case SIR_HAL_NDP_CONFIRM:
     case SIR_HAL_NDP_RESPONDER_RSP:
-    case SIR_HAL_NDP_END_RSP:
-    case SIR_HAL_NDP_END_IND:
         lim_handle_ndp_event_message(pMac, limMsg);
         break;
     default:

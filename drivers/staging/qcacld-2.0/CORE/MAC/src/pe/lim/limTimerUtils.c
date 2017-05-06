@@ -471,6 +471,27 @@ limCreateTimers(tpAniSirGlobal pMac)
         }
     }
 
+
+    cfgValue = SYS_MS_TO_TICKS(LIM_HASH_MISS_TIMER_MS);
+
+    if (tx_timer_create(
+                        &pMac->lim.limTimers.gLimSendDisassocFrameThresholdTimer,
+                        "Disassoc throttle TIMEOUT",
+                        limSendDisassocFrameThresholdHandler,
+                        SIR_LIM_HASH_MISS_THRES_TIMEOUT,
+                        cfgValue,
+                        cfgValue,
+                        TX_AUTO_ACTIVATE) != TX_SUCCESS)
+    {
+        /// Could not start Send Disassociate Frame Threshold timer.
+        // Log error
+        limLog(pMac, LOGP,
+               FL("create Disassociate throttle timer failed"));
+        goto err_timer;
+    }
+    PELOG1(limLog(pMac, LOG1,
+           FL("Created Disassociate throttle timer "));)
+
     /**
      * Create keep alive timer and  activate it right away for AP role
      */
@@ -734,6 +755,7 @@ limCreateTimers(tpAniSirGlobal pMac)
             tx_timer_delete(&pMac->lim.limTimers.gpLimCnfWaitTimer[i]);
         }
         tx_timer_delete(&pMac->lim.limTimers.gLimKeepaliveTimer);
+        tx_timer_delete(&pMac->lim.limTimers.gLimSendDisassocFrameThresholdTimer);
         tx_timer_delete(&pMac->lim.limTimers.gLimBackgroundScanTimer);
         tx_timer_delete(&pMac->lim.limTimers.gLimProbeAfterHBTimer);
         tx_timer_delete(&pMac->lim.limTimers.gLimHeartBeatTimer);
@@ -923,16 +945,7 @@ limAssocFailureTimerHandler(void *pMacGlobal, tANI_U32 param)
        (pMac->lim.pSessionEntry->limMlmState == eLIM_MLM_WT_FT_REASSOC_RSP_STATE))
     {
         limLog(pMac, LOGE, FL("Reassoc timeout happened"));
-#ifdef FEATURE_WLAN_ESE
-	if (((pMac->lim.pSessionEntry->isESEconnection) &&
-             (pMac->lim.reAssocRetryAttempt <
-             (LIM_MAX_REASSOC_RETRY_LIMIT - 1)))||
-             ((!pMac->lim.pSessionEntry->isESEconnection) &&
-             (pMac->lim.reAssocRetryAttempt < LIM_MAX_REASSOC_RETRY_LIMIT))
-	   )
-#else
-        if (pMac->lim.reAssocRetryAttempt < LIM_MAX_REASSOC_RETRY_LIMIT)
-#endif
+        if(pMac->lim.reAssocRetryAttempt < LIM_MAX_REASSOC_RETRY_LIMIT)
         {
             limSendRetryReassocReqFrame(pMac, pMac->lim.pSessionEntry->pLimMlmReassocRetryReq, pMac->lim.pSessionEntry);
             pMac->lim.reAssocRetryAttempt++;
@@ -1050,6 +1063,17 @@ limDeactivateAndChangeTimer(tpAniSirGlobal pMac, tANI_U32 timerId)
             if (pMac->lim.gpLimMlmScanReq) {
                 val =
                      SYS_MS_TO_TICKS(pMac->lim.gpLimMlmScanReq->minChannelTime);
+                if (pMac->btc.btcScanCompromise) {
+                    if (pMac->lim.gpLimMlmScanReq->minChannelTimeBtc) {
+                        val = SYS_MS_TO_TICKS(
+                                  pMac->lim.gpLimMlmScanReq->minChannelTimeBtc);
+                        limLog(pMac, LOG1,
+                               FL("Using BTC Min Active Scan time"));
+                    } else {
+                        limLog(pMac, LOGE,
+                               FL("BTC Active Scan Min Time is Not Set"));
+                    }
+                }
             } else {
                 limLog(pMac, LOGE, FL("gpLimMlmScanReq is NULL"));
                 break;
@@ -1076,6 +1100,17 @@ limDeactivateAndChangeTimer(tpAniSirGlobal pMac, tANI_U32 timerId)
             }
 
             val = SYS_MS_TO_TICKS(pMac->lim.gpLimMlmScanReq->minChannelTime)/2;
+            if (pMac->btc.btcScanCompromise)
+            {
+               if (pMac->lim.gpLimMlmScanReq->minChannelTimeBtc)
+               {
+                   val = SYS_MS_TO_TICKS(pMac->lim.gpLimMlmScanReq->minChannelTimeBtc)/2;
+               }
+               else
+               {
+                   limLog(pMac, LOGE, FL("BTC Active Scan Min Time is Not Set"));
+               }
+            }
             if (val)
             {
                if (tx_timer_change(&pMac->lim.limTimers.gLimPeriodicProbeReqTimer,
@@ -1116,6 +1151,17 @@ limDeactivateAndChangeTimer(tpAniSirGlobal pMac, tANI_U32 timerId)
                 if (pMac->lim.gpLimMlmScanReq) {
                     val = SYS_MS_TO_TICKS(
                                      pMac->lim.gpLimMlmScanReq->maxChannelTime);
+                    if (pMac->btc.btcScanCompromise) {
+                        if (pMac->lim.gpLimMlmScanReq->maxChannelTimeBtc) {
+                            val = SYS_MS_TO_TICKS(
+                                  pMac->lim.gpLimMlmScanReq->maxChannelTimeBtc);
+                            limLog(pMac, LOG1,
+                                   FL("Using BTC Max Active Scan time"));
+                        } else {
+                            limLog(pMac, LOGE,
+                                   FL("BTC Active Scan Max Time is Not Set"));
+                        }
+                    }
                 } else {
                     limLog(pMac, LOGE, FL("gpLimMlmScanReq is NULL"));
                     break;
@@ -2037,6 +2083,42 @@ void limActivateAuthRspTimer(tpAniSirGlobal pMac, tLimPreAuthNode *pAuthNode)
         limLog(pMac, LOGP,
                FL("could not activate auth rsp timer"));
     }
+}
+
+
+/**
+ * limSendDisassocFrameThresholdHandler()
+ *
+ *FUNCTION:
+ *        This function reloads the credit to the send disassociate frame bucket
+ *
+ *LOGIC:
+ *
+ *ASSUMPTIONS:
+ *
+ *NOTE:
+ * NA
+ *
+ * @param
+ *
+ * @return None
+ */
+
+void
+limSendDisassocFrameThresholdHandler(void *pMacGlobal, tANI_U32 param)
+{
+    tSirMsgQ    msg;
+    tANI_U32         statusCode;
+    tpAniSirGlobal pMac = (tpAniSirGlobal)pMacGlobal;
+
+    msg.type = SIR_LIM_HASH_MISS_THRES_TIMEOUT;
+    msg.bodyval = 0;
+    msg.bodyptr = NULL;
+
+    if ((statusCode = limPostMsgApi(pMac, &msg)) != eSIR_SUCCESS)
+            limLog(pMac, LOGE,
+        FL("posting to LIM failed, reason=%d"), statusCode);
+
 }
 
 /**

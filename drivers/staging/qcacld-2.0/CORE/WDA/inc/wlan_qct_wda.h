@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2016 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -896,8 +896,6 @@ tSirRetStatus uMacPostCtrlMsg(void* pSirGlobal, tSirMbMsg* pMb);
 #define WDA_UPDATE_CHAN_LIST_REQ    SIR_HAL_UPDATE_CHAN_LIST_REQ
 #define WDA_UPDATE_CHAN_LIST_RSP    SIR_HAL_UPDATE_CHAN_LIST_RSP
 #define WDA_RX_SCAN_EVENT           SIR_HAL_RX_SCAN_EVENT
-#define WDA_RX_CHN_STATUS_EVENT     SIR_HAL_RX_CHN_STATUS_EVENT
-
 #define WDA_IBSS_PEER_INACTIVITY_IND SIR_HAL_IBSS_PEER_INACTIVITY_IND
 
 #define WDA_CLI_SET_CMD             SIR_HAL_CLI_SET_CMD
@@ -968,9 +966,7 @@ tSirRetStatus uMacPostCtrlMsg(void* pSirGlobal, tSirMbMsg* pMb);
 #define WDA_DEAUTH_TX_COMP         SIR_HAL_DEAUTH_TX_COMP
 #define WDA_GET_LINK_SPEED         SIR_HAL_GET_LINK_SPEED
 
-#define WDA_GET_PEER_INFO               SIR_HAL_GET_PEER_INFO
-#define WDA_GET_PEER_INFO_EXT      SIR_HAL_GET_PEER_INFO_EXT
-#define WDA_GET_PEER_INFO_EXT_IND  SIR_HAL_GET_PEER_INFO_EXT_IND
+#define WDA_GET_RSSI               SIR_HAL_GET_RSSI
 
 #define WDA_MODEM_POWER_STATE_IND SIR_HAL_MODEM_POWER_STATE_IND
 
@@ -1012,7 +1008,6 @@ tSirRetStatus uMacPostCtrlMsg(void* pSirGlobal, tSirMbMsg* pMb);
 #define WDA_LINK_LAYER_STATS_SET_REQ          SIR_HAL_LL_STATS_SET_REQ
 #define WDA_LINK_LAYER_STATS_GET_REQ          SIR_HAL_LL_STATS_GET_REQ
 #define WDA_LINK_LAYER_STATS_RESULTS_RSP      SIR_HAL_LL_STATS_RESULTS_RSP
-#define WDA_LINK_LAYER_STATS_SET_THRESHOLD    SIR_HAL_LL_STATS_EXT_SET_THRESHOLD
 #endif /* WLAN_FEATURE_LINK_LAYER_STATS */
 
 #define WDA_LINK_STATUS_GET_REQ SIR_HAL_LINK_STATUS_GET_REQ
@@ -1083,8 +1078,6 @@ tSirRetStatus uMacPostCtrlMsg(void* pSirGlobal, tSirMbMsg* pMb);
 
 #define WDA_SET_WOW_PULSE_CMD                 SIR_HAL_SET_WOW_PULSE_CMD
 
-#define WDA_SET_WAKEUP_GPIO_CMD               SIR_HAL_SET_WAKEUP_GPIO_CMD
-
 #define WDA_UPDATE_WEP_DEFAULT_KEY            SIR_HAL_UPDATE_WEP_DEFAULT_KEY
 
 #define WDA_SET_CTS2SELF_FOR_STA              SIR_HAL_SET_CTS2SELF_FOR_STA
@@ -1101,12 +1094,6 @@ tSirRetStatus uMacPostCtrlMsg(void* pSirGlobal, tSirMbMsg* pMb);
 #define WDA_REMOVE_BCN_FILTER_CMDID           SIR_HAL_REMOVE_BCN_FILTER_CMDID
 
 #define WDA_UPDATE_TX_RATE                    SIR_HAL_UPDATE_TX_RATE
-#define WDA_UPDATE_TX_FAIL_CNT_TH             SIR_HAL_UPDATE_TX_FAIL_CNT_TH
-#define WDA_UPDATE_SHORT_RETRY_LIMIT_CNT      SIR_HAL_SHORT_RETRY_LIMIT_CNT
-#define WDA_UPDATE_LONG_RETRY_LIMIT_CNT       SIR_HAL_LONG_RETRY_LIMIT_CNT
-
-
-#define WDA_UPDATE_STA_INACTIVITY_TIMEOUT     SIR_HAL_STA_INACTIVITY_TIMEOUT
 
 tSirRetStatus wdaPostCtrlMsg(tpAniSirGlobal pMac, tSirMsgQ *pMsg);
 

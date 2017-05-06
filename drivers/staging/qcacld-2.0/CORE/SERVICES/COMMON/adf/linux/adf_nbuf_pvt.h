@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2014, 2016-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2014,2016 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -66,8 +66,6 @@ typedef void (*__adf_nbuf_callback_fn) (struct sk_buff *skb);
 
 typedef void (*adf_nbuf_trace_update_t)(char *);
 
-#pragma pack(push)
-#pragma pack(1)
 struct cvg_nbuf_cb {
     /*
      * Store a pointer to a parent network buffer.
@@ -90,10 +88,9 @@ struct cvg_nbuf_cb {
      * Store info for data path tracing
      */
     struct {
-        uint8_t packet_state:4;
-        uint8_t packet_track:2;
-        uint8_t dp_trace_tx:1;
-        uint8_t dp_trace_rx:1;
+        uint8_t packet_state;
+        uint8_t packet_track;
+        uint8_t dp_trace;
     } trace;
 
     /*
@@ -138,25 +135,13 @@ struct cvg_nbuf_cb {
 #endif /* QCA_MDM_DEVICE */
 #ifdef QCA_PKT_PROTO_TRACE
     unsigned char proto_type;
+    unsigned char vdev_id;
 #endif /* QCA_PKT_PROTO_TRACE */
-#ifdef QOS_FWD_SUPPORT
-    unsigned char fwd_flag: 1;
-#endif /* QOS_FWD_SUPPORT */
 #ifdef QCA_TX_HTT2_SUPPORT
     unsigned char tx_htt2_frm: 1;
+    unsigned char tx_htt2_reserved: 7;
 #endif /* QCA_TX_HTT2_SUPPORT */
-    struct {
-        uint8_t is_eapol:1;
-        uint8_t is_arp:1;
-        uint8_t is_dhcp:1;
-        uint8_t is_wapi:1;
-        uint8_t is_mcast:1;
-        uint8_t is_bcast:1;
-        uint8_t reserved:1;
-        uint8_t print:1;
-    } packet_type;
 } __packed;
-#pragma pack(pop)
 
 #ifdef QCA_ARP_SPOOFING_WAR
 #define NBUF_CB_PTR(skb) \
@@ -203,16 +188,6 @@ struct cvg_nbuf_cb {
 #define NBUF_GET_PROTO_TYPE(skb) 0;
 #endif /* QCA_PKT_PROTO_TRACE */
 
-#ifdef QOS_FWD_SUPPORT
-#define NBUF_SET_FWD_FLAG(skb, flag) \
-    (((struct cvg_nbuf_cb *)((skb)->cb))->fwd_flag = flag)
-#define NBUF_GET_FWD_FLAG(skb) \
-    (((struct cvg_nbuf_cb *)((skb)->cb))->fwd_flag)
-#else
-#define NBUF_SET_FWD_FLAG(skb, fwd_flag);
-#define NBUF_GET_FWD_FLAG(skb) 0;
-#endif /* QOS_FWD_SUPPORT */
-
 #ifdef QCA_TX_HTT2_SUPPORT
 #define NBUF_SET_TX_HTT2_FRM(skb, candi) \
     (((struct cvg_nbuf_cb *)((skb)->cb))->tx_htt2_frm = candi)
@@ -237,59 +212,17 @@ struct cvg_nbuf_cb {
 #define NBUF_SET_PACKET_TRACK(skb, pkt_track) \
     (((struct cvg_nbuf_cb *)((skb)->cb))->trace.packet_track = \
                                            pkt_track)
-#define ADF_NBUF_SET_EAPOL(skb) \
-		(((struct cvg_nbuf_cb *)((skb)->cb))->packet_type.is_eapol = \
-                                           true)
-#define ADF_NBUF_SET_ARP(skb) \
-		(((struct cvg_nbuf_cb *)((skb)->cb))->packet_type.is_arp = \
-                                           true)
-#define ADF_NBUF_SET_DHCP(skb) \
-			(((struct cvg_nbuf_cb *)((skb)->cb))->packet_type.is_dhcp = \
-                                           true)
-#define ADF_NBUF_SET_WAPI(skb) \
-			(((struct cvg_nbuf_cb *)((skb)->cb))->packet_type.is_wapi = \
-                                           true)
-#define ADF_NBUF_SET_MCAST(skb) \
-			(((struct cvg_nbuf_cb *)((skb)->cb))->packet_type.is_mcast = \
-                                           true)
-#define ADF_NBUF_SET_BCAST(skb) \
-			(((struct cvg_nbuf_cb *)((skb)->cb))->packet_type.is_bcast = \
-                                           true)
-
 #define NBUF_GET_PACKET_TRACK(skb) \
     (((struct cvg_nbuf_cb *)((skb)->cb))->trace.packet_track)
 
 #define NBUF_UPDATE_TX_PKT_COUNT(skb, PACKET_STATE) \
     adf_nbuf_set_state(skb, PACKET_STATE)
 
-#define ADF_NBUF_CB_TX_DP_TRACE(skb) \
-    (((struct cvg_nbuf_cb *)((skb)->cb))->trace.dp_trace_tx)
-
-#define ADF_NBUF_CB_DP_TRACE_PRINT(skb) \
-	(((struct cvg_nbuf_cb *)((skb)->cb))->packet_type.print)
-
-#define ADF_NBUF_CB_RX_DP_TRACE(skb) \
-    (((struct cvg_nbuf_cb *)((skb)->cb))->trace.dp_trace_rx)
-
-#define ADF_NBUF_GET_IS_EAPOL(skb) \
-    (((struct cvg_nbuf_cb *)((skb)->cb))->packet_type.is_eapol)
-
-#define ADF_NBUF_GET_IS_ARP(skb) \
-    (((struct cvg_nbuf_cb *)((skb)->cb))->packet_type.is_arp)
-
-#define ADF_NBUF_GET_IS_DHCP(skb) \
-		(((struct cvg_nbuf_cb *)((skb)->cb))->packet_type.is_dhcp)
-
-#define ADF_NBUF_GET_IS_WAPI(skb) \
-		(((struct cvg_nbuf_cb *)((skb)->cb))->packet_type.is_wapi)
-
-#define ADF_NBUF_GET_IS_BCAST(skb) \
-			(((struct cvg_nbuf_cb *)((skb)->cb))->packet_type.is_bcast)
-
-#define ADF_NBUF_GET_IS_MCAST(skb) \
-			(((struct cvg_nbuf_cb *)((skb)->cb))->packet_type.is_mcast)
-
-
+#define ADF_NBUF_SET_DP_TRACE(skb, enable) \
+    (((struct cvg_nbuf_cb *)((skb)->cb))->trace.dp_trace \
+                                     = enable)
+#define ADF_NBUF_GET_DP_TRACE(skb) \
+    (((struct cvg_nbuf_cb *)((skb)->cb))->trace.dp_trace)
 
 #define __adf_nbuf_get_num_frags(skb)              \
     /* assume the OS provides a single fragment */ \
@@ -342,11 +275,6 @@ struct cvg_nbuf_cb {
     NBUF_SET_PROTO_TYPE(skb, proto_type)
 #define __adf_nbuf_trace_get_proto_type(skb) \
     NBUF_GET_PROTO_TYPE(skb);
-
-#define __adf_nbuf_set_fwd_flag(skb, flag) \
-    NBUF_SET_FWD_FLAG(skb, flag)
-#define __adf_nbuf_get_fwd_flag(skb) \
-    NBUF_GET_FWD_FLAG(skb);
 
 typedef struct __adf_nbuf_qhead {
     struct sk_buff   *head;
@@ -413,8 +341,8 @@ bool            __adf_nbuf_data_is_ipv4_udp_pkt(uint8_t *data);
 bool            __adf_nbuf_data_is_ipv4_tcp_pkt(uint8_t *data);
 bool            __adf_nbuf_data_is_ipv6_udp_pkt(uint8_t *data);
 bool            __adf_nbuf_data_is_ipv6_tcp_pkt(uint8_t *data);
-bool            __adf_nbuf_data_is_dhcp_pkt(uint8_t *data);
-bool            __adf_nbuf_data_is_eapol_pkt(uint8_t *data);
+a_status_t      __adf_nbuf_data_is_dhcp_pkt(uint8_t *data);
+a_status_t      __adf_nbuf_data_is_eapol_pkt(uint8_t *data);
 bool            __adf_nbuf_data_is_ipv4_arp_pkt(uint8_t *data);
 enum adf_proto_subtype  __adf_nbuf_data_get_dhcp_subtype(uint8_t *data);
 enum adf_proto_subtype  __adf_nbuf_data_get_eapol_subtype(uint8_t *data);
@@ -423,9 +351,6 @@ enum adf_proto_subtype  __adf_nbuf_data_get_icmp_subtype(uint8_t *data);
 enum adf_proto_subtype  __adf_nbuf_data_get_icmpv6_subtype(uint8_t *data);
 uint8_t         __adf_nbuf_data_get_ipv4_proto(uint8_t *data);
 uint8_t         __adf_nbuf_data_get_ipv6_proto(uint8_t *data);
-bool __adf_nbuf_is_bcast_pkt(uint8_t *data);
-bool __adf_nbuf_is_multicast_pkt(uint8_t *data);
-bool __adf_nbuf_is_wai_pkt(uint8_t *data);
 
 
 #ifdef QCA_PKT_PROTO_TRACE
@@ -1214,21 +1139,6 @@ __adf_nbuf_append_ext_list(
         skb_shinfo(skb_head)->frag_list = ext_list;
         skb_head->data_len = ext_len;
         skb_head->len += skb_head->data_len;
-}
-
-/**
- * __adf_nbuf_get_ext_list() - Get the link to extended nbuf list.
- * @head_buf: Network buf holding head segment (single)
- *
- * This ext_list is populated when we have Jumbo packet, for example in case of
- * monitor mode amsdu packet reception, and are stiched using frags_list.
- *
- * Return: Network buf list holding linked extensions from head buf.
- */
-static inline struct sk_buff *
-__adf_nbuf_get_ext_list(struct sk_buff *head_buf)
-{
-	return skb_shinfo(head_buf)->frag_list;
 }
 
 static inline void

@@ -179,7 +179,7 @@ limCollectBssDescription(tpAniSirGlobal pMac,
                   sizeof(tSirMacAddr));
 
     // Copy Timestamp, Beacon Interval and Capability Info
-    pBssDescr->scansystimensec = vos_get_monotonic_boottime_ns();
+    pBssDescr->scanSysTimeMsec = vos_timer_get_system_time();
 
     pBssDescr->timeStamp[0]   = pBPR->timeStamp[0];
     pBssDescr->timeStamp[1]   = pBPR->timeStamp[1];
@@ -240,7 +240,7 @@ limCollectBssDescription(tpAniSirGlobal pMac,
 
     //SINR no longer reported by HW
     pBssDescr->sinr = 0;
-    pBssDescr->nReceivedTime = vos_timer_get_system_time();
+    pBssDescr->nReceivedTime = (tANI_TIMESTAMP)palGetTickCount(pMac->hHdd);
     pBssDescr->tsf_delta = WDA_GET_RX_TSF_DELTA(pRxPacketInfo);
 
     limLog(pMac, LOG1,
@@ -428,7 +428,8 @@ limCheckAndAddBssDescription(tpAniSirGlobal pMac,
            ( pMac->lim.gLimReturnAfterFirstMatch & 0x01 ) &&
            (pMac->lim.gpLimMlmScanReq->numSsid) &&
            !limIsScanRequestedSSID(pMac, &pBPR->ssId)) ||
-          (!fFound && (pMac->lim.gpLimMlmScanReq) &&
+          (!fFound && (pMac->lim.gpLimMlmScanReq &&
+                       pMac->lim.gpLimMlmScanReq->bssId) &&
            !vos_mem_compare(bssid,
                            &pMac->lim.gpLimMlmScanReq->bssId, 6))))
     {
@@ -521,8 +522,6 @@ limCheckAndAddBssDescription(tpAniSirGlobal pMac,
 
         return;
     }
-
-    vos_mem_zero(pBssDescr, frameLen);
 
     // In scan state, store scan result.
 #if defined WLAN_FEATURE_VOWIFI

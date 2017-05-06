@@ -85,10 +85,6 @@
 #define TXRX_DATA_HISTROGRAM_GRANULARITY      1000
 #define TXRX_DATA_HISTROGRAM_NUM_INTERVALS    100
 
-#define OL_TXRX_INVALID_VDEV_ID		(-1)
-
-#define INVALID_REORDER_INDEX 0xFFFF
-
 struct ol_txrx_pdev_t;
 struct ol_txrx_vdev_t;
 struct ol_txrx_peer_t;
@@ -130,7 +126,6 @@ enum ol_tx_frm_type {
     ol_tx_frm_tso,     /* TSO segment, with a modified IP header added */
     ol_tx_frm_audio,   /* audio frames, with a custom LLC/SNAP header added */
     ol_tx_frm_no_free, /* frame requires special tx completion callback */
-    ol_tx_frm_freed = 0xff, /* the tx desc is in free list */
 };
 
 #if defined(CONFIG_HL_SUPPORT) && defined(QCA_BAD_PEER_TX_FLOW_CL)
@@ -170,7 +165,6 @@ typedef struct _tx_peer_threshold{
 struct ol_tx_desc_t {
 	adf_nbuf_t netbuf;
 	void *htt_tx_desc;
-	uint16_t id;
 	u_int32_t htt_tx_desc_paddr;
 	adf_os_atomic_t ref_cnt;
 	enum htt_tx_status status;
@@ -198,17 +192,18 @@ struct ol_tx_desc_t {
 	u_int8_t orig_l2_hdr_bytes;
 #endif
 
-	u_int8_t vdev_id;
 	struct ol_txrx_vdev_t* vdev;
 
 	void *txq;
+	void *p_link;
+	uint16_t id;
 };
 
 typedef TAILQ_HEAD(, ol_tx_desc_t) ol_tx_desc_list;
 
-union ol_tx_desc_list_elem_t {
-	union ol_tx_desc_list_elem_t *next;
-	struct ol_tx_desc_t tx_desc;
+struct ol_tx_desc_list_elem_t {
+	struct ol_tx_desc_list_elem_t *next;
+	struct ol_tx_desc_t *tx_desc;
 };
 
 union ol_txrx_align_mac_addr_t {
@@ -365,19 +360,7 @@ struct ol_tx_sched_t;
 typedef struct ol_tx_sched_t *ol_tx_sched_handle;
 
 #ifndef OL_TXRX_NUM_LOCAL_PEER_IDS
-#ifdef WLAN_4SAP_CONCURRENCY
-/*
- * Each AP will occupy one ID, so it will occupy 4 IDs for 4 SAP mode.
- * And the remainder IDs will be assigned to other 32 clients.
- */
-#define OL_TXRX_NUM_LOCAL_PEER_IDS (4 + 32)
-#else
-/*
- * Each AP will occupy one ID, so it will occupy two IDs for AP-AP mode.
- * And the remainder IDs will be assigned to other 32 clients.
- */
-#define OL_TXRX_NUM_LOCAL_PEER_IDS (2 + 32)
-#endif
+#define OL_TXRX_NUM_LOCAL_PEER_IDS 33 /* default */
 #endif
 
 #ifndef ol_txrx_local_peer_id_t
@@ -422,7 +405,7 @@ typedef enum _throttle_phase {
 	THROTTLE_PHASE_MAX,
 } throttle_phase ;
 
-#define THROTTLE_TX_THRESHOLD (400)
+#define THROTTLE_TX_THRESHOLD (100)
 
 #ifdef IPA_UC_OFFLOAD
 typedef void (*ipa_uc_op_cb_type)(u_int8_t *op_msg, void *osif_ctxt);
@@ -613,12 +596,8 @@ struct ol_txrx_pdev_t {
 	struct {
 		u_int16_t pool_size;
 		u_int16_t num_free;
-		union ol_tx_desc_list_elem_t *freelist;
-		uint32_t page_size;
-		uint16_t desc_reserved_size;
-		uint8_t page_divider;
-		uint32_t offset_filter;
-		struct adf_os_mem_multi_page_t desc_pages;
+		struct ol_tx_desc_list_elem_t *array;
+		struct ol_tx_desc_list_elem_t *freelist;
 	} tx_desc;
 
 	struct {
@@ -856,14 +835,13 @@ struct ol_txrx_pdev_t {
 	struct ol_txrx_peer_t *ocb_peer;
 	int tid_to_ac[OL_TX_NUM_TIDS + OL_TX_VDEV_NUM_QUEUES];
 
+	unsigned int page_size;
+	unsigned int desc_mem_size;
+	unsigned int num_desc_pages;
+	unsigned int num_descs_per_page;
+	void **desc_pages;
 	struct ol_txrx_peer_t *self_peer;
 	uint32_t total_bundle_queue_length;
-
-#ifdef MAC_NOTIFICATION_FEATURE
-	/* Callback to indicate failure to user space */
-	void (*tx_failure_cb)(void *ctx, unsigned int num_msdu,
-			      unsigned char tid, unsigned int status);
-#endif
 };
 
 struct ol_txrx_ocb_chan_info {
@@ -995,9 +973,8 @@ struct ol_txrx_vdev_t {
 	/* Default OCB TX parameter */
 	struct ocb_tx_ctrl_hdr_t *ocb_def_tx_param;
 
-	/* intra bss forwarded tx and rx packets count */
-	uint64_t fwd_tx_packets;
-	uint64_t fwd_rx_packets;
+	/* packet count that only forwarded and not dent to OS layer */
+	uint64_t fwd_to_tx_packets;
 };
 
 struct ol_rx_reorder_array_elem_t {

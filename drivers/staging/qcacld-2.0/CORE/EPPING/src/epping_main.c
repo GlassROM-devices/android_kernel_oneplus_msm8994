@@ -45,6 +45,7 @@
 #include <wlan_hdd_tx_rx.h>
 #include <wniApi.h>
 #include <wlan_nlink_srv.h>
+#include <wlan_btc_svc.h>
 #include <wlan_hdd_cfg.h>
 #include <wlan_ptt_sock_svc.h>
 #include <wlan_hdd_wowl.h>
@@ -68,6 +69,7 @@
 #include "if_ath_sdio.h"
 #endif
 #include "epping_main.h"
+#include "wlan_hdd_memdump.h"
 #include "epping_internal.h"
 
 #ifdef TIMER_MANAGER
@@ -114,7 +116,6 @@ int epping_driver_init(int con_mode, vos_wake_lock_t *g_wake_lock,
 #endif
 #ifdef MEMORY_DEBUG
    vos_mem_init();
-   adf_net_buf_debug_init();
 #endif
 
    pEpping_ctx = vos_mem_malloc(sizeof(epping_context_t));
@@ -170,7 +171,6 @@ int epping_driver_init(int con_mode, vos_wake_lock_t *g_wake_lock,
       vos_mem_free(pEpping_ctx);
 
 #ifdef MEMORY_DEBUG
-      adf_net_buf_debug_exit();
       vos_mem_exit();
 #endif
 #ifdef TIMER_MANAGER
@@ -188,7 +188,6 @@ error1:
       pEpping_ctx = NULL;
    }
 #ifdef MEMORY_DEBUG
-   adf_net_buf_debug_exit();
    vos_mem_exit();
 #endif
 #ifdef TIMER_MANAGER
@@ -216,6 +215,7 @@ void epping_exit(v_CONTEXT_t pVosContext)
             __func__);
          return;
       }
+   memdump_deinit();
    if (pEpping_ctx->epping_adapter) {
       epping_destroy_adapter(pEpping_ctx->epping_adapter);
       pEpping_ctx->epping_adapter = NULL;
@@ -258,7 +258,6 @@ void epping_driver_exit(v_CONTEXT_t pVosContext)
    vos_mem_free(pEpping_ctx);
    vos_preClose( &pVosContext );
 #ifdef MEMORY_DEBUG
-   adf_net_buf_debug_exit();
    vos_mem_exit();
 #endif
 #ifdef TIMER_MANAGER
@@ -415,6 +414,7 @@ int epping_wlan_startup(struct device *parent_dev, v_VOID_t *hif_sc)
       }
    }
 #endif /* HIF_PCI */
+   memdump_init();
    EPPING_LOG(VOS_TRACE_LEVEL_INFO_HIGH, "%s: Exit", __func__);
    complete(&pEpping_ctx->wlan_start_comp);
    return ret;

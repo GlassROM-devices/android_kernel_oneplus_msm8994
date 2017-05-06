@@ -193,7 +193,6 @@ typedef struct sLimMlmStartReq
     tANI_U8              ssidHidden;
     tANI_U8              wps_state;
     tANI_U8              obssProtEnabled;
-    uint16_t             beacon_tx_rate;
 } tLimMlmStartReq, *tpLimMlmStartReq;
 
 typedef struct sLimMlmStartCnf
@@ -263,18 +262,6 @@ typedef struct sLimMlmAssocInd
     tANI_U32             assocReqLength;
     tANI_U8*             assocReqPtr;
     tSirSmeChanInfo      chan_info;
-    uint8_t              ecsa_capable;
-    bool                 ampdu;
-    bool                 sgi_enable;
-    bool                 tx_stbc;
-    bool                 rx_stbc;
-    tSirMacHTChannelWidth ch_width;
-    enum sir_sme_phy_mode mode;
-    uint8_t              max_supp_idx;
-    uint8_t              max_ext_idx;
-    uint8_t              max_mcs_idx;
-    uint8_t              rx_mcs_map;
-    uint8_t              tx_mcs_map;
 } tLimMlmAssocInd, *tpLimMlmAssocInd;
 
 typedef struct sLimMlmReassocReq
@@ -315,7 +302,6 @@ typedef struct sLimMlmReassocInd
     tANI_U8*             beaconPtr;
     tANI_U32             assocReqLength;
     tANI_U8*             assocReqPtr;
-    uint8_t              ecsa_capable;
 } tLimMlmReassocInd, *tpLimMlmReassocInd;
 
 typedef struct sLimMlmAuthCnf
@@ -786,6 +772,12 @@ void limSetChannel(tpAniSirGlobal pMac, tANI_U8 channel, tANI_U8 secChannelOffse
 /// Function that completes channel scan
 void limCompleteMlmScan(tpAniSirGlobal, tSirResultCodes);
 
+#ifdef FEATURE_OEM_DATA_SUPPORT
+/* Function that sets system into meas mode for oem data req */
+void limSetOemDataReqMode(tpAniSirGlobal pMac, eHalStatus status, tANI_U32* data);
+#endif
+
+
 /// Function that sends TPC Request action frame
 void limSendTpcRequestFrame(tpAniSirGlobal, tSirMacAddr, tpPESession psessionEntry);
 
@@ -979,6 +971,57 @@ limGetCurrentScanChannel(tpAniSirGlobal pMac)
     return (*(pChanNum + pMac->lim.gLimCurrentScanChannelId));
 } /*** end limGetCurrentScanChannel() ***/
 
+
+
+/**
+ * limGetIElenFromBssDescription()
+ *
+ *FUNCTION:
+ * This function is called in various places to get IE length
+ * from tSirBssDescription structure
+ * number being scanned.
+ *
+ *PARAMS:
+ *
+ *LOGIC:
+ *
+ *ASSUMPTIONS:
+ * NA
+ *
+ *NOTE:
+ * NA
+ *
+ * @param     pBssDescr
+ * @return    Total IE length
+ */
+
+static inline tANI_U16
+limGetIElenFromBssDescription(tpSirBssDescription pBssDescr)
+{
+    uint16_t ielen;
+
+    if (!pBssDescr)
+        return 0;
+
+    /**
+     * Length of BSS desription is without length of
+     * length itself and length of pointer
+     * that holds ieFields
+     *
+     * <------------sizeof(tSirBssDescription)-------------------->
+     * +--------+---------------------------------+---------------+
+     * | length | other fields                    | pointer to IEs|
+     * +--------+---------------------------------+---------------+
+     *                                            ^
+     *                                            ieFields
+     */
+
+    ielen = ((tANI_U16) (pBssDescr->length + sizeof(pBssDescr->length) +
+                   sizeof(tANI_U32 *) - sizeof(tSirBssDescription)));
+
+    return ielen;
+} /*** end limGetIElenFromBssDescription() ***/
+
 /**
  * limSendBeaconInd()
  *
@@ -1049,7 +1092,6 @@ typedef struct sSetLinkCbackParams
 #endif
 
 void limProcessRxScanEvent(tpAniSirGlobal mac, void *buf);
-void lim_process_rx_channel_status_event(tpAniSirGlobal mac_ctx, void *buf);
 
 int limProcessRemainOnChnlReq(tpAniSirGlobal pMac, tANI_U32 *pMsg);
 void limRemainOnChnRsp(tpAniSirGlobal pMac, eHalStatus status, tANI_U32 *data);

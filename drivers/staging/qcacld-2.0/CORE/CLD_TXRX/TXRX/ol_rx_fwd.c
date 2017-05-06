@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011, 2014, 2016 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011, 2014 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -143,7 +143,6 @@ ol_rx_fwd_to_tx(struct ol_txrx_vdev_t *vdev, adf_nbuf_t msdu)
         adf_nbuf_pull_head(msdu,
                 htt_rx_msdu_rx_desc_size_hl(pdev->htt_pdev,
                     rx_desc));
-        adf_nbuf_set_fwd_flag(msdu, ADF_NBUF_FWD_FLAG);
     }
 
     msdu = vdev->tx(vdev, msdu);
@@ -154,7 +153,7 @@ ol_rx_fwd_to_tx(struct ol_txrx_vdev_t *vdev, adf_nbuf_t msdu)
          * We could store the frame and try again later,
          * but the simplest solution is to discard the frames.
          */
-        adf_nbuf_tx_free(msdu, ADF_NBUF_PKT_ERROR);
+        adf_nbuf_free(msdu);
     }
 }
 
@@ -231,11 +230,9 @@ ol_rx_fwd_check(
             if (!do_not_fwd) {
                 if (htt_rx_msdu_discard(pdev->htt_pdev, rx_desc)) {
                         htt_rx_msdu_desc_free(pdev->htt_pdev, msdu);
-                        adf_net_buf_debug_release_skb(msdu);
                         ol_rx_fwd_to_tx(tx_vdev, msdu);
                         msdu = NULL; /* already handled this MSDU */
-                        tx_vdev->fwd_tx_packets++;
-                        vdev->fwd_rx_packets++;
+                        vdev->fwd_to_tx_packets++;
                         TXRX_STATS_ADD(pdev, pub.rx.intra_bss_fwd.packets_fwd,
                                 1);
                 } else {
@@ -243,7 +240,6 @@ ol_rx_fwd_check(
                         copy = adf_nbuf_copy(msdu);
                         if (copy) {
                             ol_rx_fwd_to_tx(tx_vdev, copy);
-                            tx_vdev->fwd_tx_packets++;
                         }
                         TXRX_STATS_ADD(pdev,
                                 pub.rx.intra_bss_fwd.packets_stack_n_fwd, 1);
@@ -268,28 +264,23 @@ ol_rx_fwd_check(
     }
 }
 
-/*
- * ol_get_intra_bss_fwd_pkts_count() - to get the total tx and rx packets
- * that has been forwarded from txrx layer without going to upper layers.
+/* ol_rx_get_fwd_to_tx_packet_count() - to get the total rx packets that has
+ * been forwarded to tx without going to OS layer.
  *
  * @vdev_id: vdev id
- * @fwd_tx_packets: pointer to forwarded tx packets count parameter
- * @fwd_rx_packets: pointer to forwarded rx packets count parameter
  *
- * Return: status -> A_OK - success, A_ERROR - failure
+ * Return: forwarded packet count if vdev is valid
+ *         0 if vdev is NULL
  *
  */
-A_STATUS ol_get_intra_bss_fwd_pkts_count(uint8_t vdev_id,
-		unsigned long *fwd_tx_packets, unsigned long *fwd_rx_packets)
+uint64_t ol_rx_get_fwd_to_tx_packet_count(uint8_t vdev_id)
 {
 	struct ol_txrx_vdev_t *vdev = NULL;
 
 	vdev = (struct ol_txrx_vdev_t *)ol_txrx_get_vdev_from_vdev_id(vdev_id);
 	if (!vdev)
-		return A_ERROR;
+		return 0;
 
-	*fwd_tx_packets = vdev->fwd_tx_packets;
-	*fwd_rx_packets = vdev->fwd_rx_packets;
-	return A_OK;
+	return vdev->fwd_to_tx_packets;
 }
 

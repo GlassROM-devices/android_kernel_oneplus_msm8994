@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2011-2016 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2015 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -90,8 +90,6 @@ htt_t2h_mac_addr_deswizzle(u_int8_t *tgt_mac_addr, u_int8_t *buffer)
 
 #if defined(CONFIG_HL_SUPPORT)
 #define HTT_RX_FRAG_SET_LAST_MSDU(pdev, msg) /* no-op */
-#define HTT_FAIL_NOTIFY_BREAK_CHECK(status) \
-	((status) == htt_tx_status_fail_notify)
 #else
 static void HTT_RX_FRAG_SET_LAST_MSDU(
     struct htt_pdev_t *pdev, adf_nbuf_t msg)
@@ -137,8 +135,6 @@ static void HTT_RX_FRAG_SET_LAST_MSDU(
     rx_desc->msdu_end.last_msdu = 1;
     adf_nbuf_map(pdev->osdev, msdu, ADF_OS_DMA_FROM_DEVICE);
 }
-
-#define HTT_FAIL_NOTIFY_BREAK_CHECK(status)  0
 #endif /* CONFIG_HL_SUPPORT */
 
 /* Target to host Msg/event  handler  for low priority messages*/
@@ -218,44 +214,11 @@ htt_t2h_lp_msg_handler(void *context, adf_nbuf_t htt_t2h_msg )
             tid = HTT_RX_FRAG_IND_EXT_TID_GET(*msg_word);
             HTT_RX_FRAG_SET_LAST_MSDU(pdev, htt_t2h_msg);
 
-            /* If packet len is invalid, will discard this frame. */
-            if (pdev->cfg.is_high_latency) {
-                u_int32_t rx_pkt_len = 0;
-
-                rx_pkt_len = adf_nbuf_len(htt_t2h_msg);
-
-                if (rx_pkt_len < (HTT_RX_FRAG_IND_BYTES +
-                    sizeof(struct hl_htt_rx_ind_base)+
-                    sizeof(struct ieee80211_frame))) {
-
-                    adf_os_print("%s: invalid packet len, %u\n",
-                                __FUNCTION__,
-                                rx_pkt_len);
-                    /*
-                     * This buf will be freed before
-                     * exiting this function.
-                     */
-                    break;
-                }
-            }
-
             ol_rx_frag_indication_handler(
                 pdev->txrx_pdev,
                 htt_t2h_msg,
                 peer_id,
                 tid);
-
-            if (pdev->cfg.is_high_latency) {
-               /*
-                * For high latency solution, HTT_T2H_MSG_TYPE_RX_FRAG_IND
-                * message and RX packet share the same buffer. All buffer will
-                * be freed by ol_rx_frag_indication_handler or upper layer to
-                * avoid double free issue.
-                *
-                */
-                return;
-            }
-
             break;
         }
     case HTT_T2H_MSG_TYPE_RX_ADDBA:
@@ -618,14 +581,9 @@ if (adf_os_unlikely(pdev->rx_ring.rx_reset)) {
                  * TODO: remove copy after stopping reuse skb on HIF layer
                  * because SDIO HIF may reuse skb before upper layer release it
                  */
-                if (VOS_MONITOR_MODE == vos_get_conparam())
-                    ol_rx_mon_indication_handler(
-                            pdev->txrx_pdev, htt_t2h_msg, peer_id, tid,
-                            num_mpdu_ranges);
-                else
-                    ol_rx_indication_handler(
-                            pdev->txrx_pdev, htt_t2h_msg, peer_id, tid,
-                            num_mpdu_ranges);
+                ol_rx_indication_handler(
+                    pdev->txrx_pdev, htt_t2h_msg, peer_id, tid,
+                    num_mpdu_ranges);
 
                 return;
             } else {
@@ -659,25 +617,7 @@ if (adf_os_unlikely(pdev->rx_ring.rx_reset)) {
                 }
             }
 
-            /* Indicate failure status to user space */
-            ol_tx_failure_indication(pdev->txrx_pdev,
-                                     HTT_TX_COMPL_IND_TID_GET(*msg_word),
-                                     num_msdus, status);
-
             if (pdev->cfg.is_high_latency) {
-                /*
-                 * For regular frms in HL case, frms have already been
-                 * freed and tx credit has been updated. FW indicates
-                 * special message for failure MSDUs with status type
-                 * htt_tx_status_fail_notify. Once such message was
-                 * received, just break here.
-                 */
-                if (ol_cfg_tx_free_at_download(pdev->ctrl_pdev) &&
-                    HTT_FAIL_NOTIFY_BREAK_CHECK(status)) {
-                    adf_os_print("HTT TX COMPL for failed data frm.\n");
-                    break;
-                }
-
                 if (!pdev->cfg.default_tx_comp_req) {
                     int credit_delta;
                     HTT_TX_MUTEX_ACQUIRE(&pdev->credit_mutex);

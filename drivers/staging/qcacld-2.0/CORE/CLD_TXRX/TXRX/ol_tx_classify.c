@@ -349,7 +349,7 @@ ol_tx_classify(
     dest_addr = ol_tx_dest_addr_find(pdev, tx_nbuf);
     if (!dest_addr) {
        VOS_TRACE(VOS_MODULE_ID_TXRX, VOS_TRACE_LEVEL_ERROR,
-                 "%s: Invalid dest_addr", __func__);
+                 FL("Invalid dest_addr");
         return NULL;
     }
     if ((IEEE80211_IS_MULTICAST(dest_addr))
@@ -376,7 +376,7 @@ ol_tx_classify(
                 return NULL; /* error */
             } else if ((peer->security[OL_TXRX_PEER_SECURITY_MULTICAST].sec_type
                               != htt_sec_type_wapi) &&
-                              adf_nbuf_is_dhcp_pkt(tx_nbuf)) {
+                              (A_STATUS_OK == adf_nbuf_is_dhcp_pkt(tx_nbuf))) {
                 /* DHCP frame to go with voice priority */
                 txq = &peer->txqs[TX_DHCP_TID];
                 tx_msdu_info->htt.info.ext_tid = TX_DHCP_TID;
@@ -498,12 +498,11 @@ ol_tx_classify(
             return NULL; /* error */
         }
         TX_SCHED_DEBUG_PRINT("Peer found\n");
-        if ((adf_nbuf_get_fwd_flag(tx_nbuf) != ADF_NBUF_FWD_FLAG) &&
-                          (!peer->qos_capable)) {
+        if (!peer->qos_capable) {
             tid = OL_TX_NON_QOS_TID;
         } else if ((peer->security[OL_TXRX_PEER_SECURITY_UNICAST].sec_type
                           != htt_sec_type_wapi) &&
-                          adf_nbuf_is_dhcp_pkt(tx_nbuf)) {
+                          (A_STATUS_OK == adf_nbuf_is_dhcp_pkt(tx_nbuf))) {
             /* DHCP frame to go with voice priority */
             tid = TX_DHCP_TID;
         }
@@ -590,7 +589,7 @@ ol_tx_classify_mgmt(
     dest_addr = ol_tx_dest_addr_find(pdev, tx_nbuf);
     if (!dest_addr) {
        VOS_TRACE(VOS_MODULE_ID_TXRX, VOS_TRACE_LEVEL_ERROR,
-                 "%s: Invalid dest_addr", __func__);
+                 FL("Invalid dest_addr");
         return NULL;
     }
     if (IEEE80211_IS_MULTICAST(dest_addr)) {

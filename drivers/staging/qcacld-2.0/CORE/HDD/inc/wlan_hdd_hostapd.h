@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2016 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2015 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -55,10 +55,7 @@
 /* max length of command string in hostapd ioctl */
 #define HOSTAPD_IOCTL_COMMAND_STRLEN_MAX   8192
 
-hdd_adapter_t* hdd_wlan_create_ap_dev(hdd_context_t *pHddCtx,
-                                      tSirMacAddr macAddr,
-                                      unsigned char name_assign_type,
-                                      tANI_U8 *name);
+hdd_adapter_t* hdd_wlan_create_ap_dev( hdd_context_t *pHddCtx, tSirMacAddr macAddr, tANI_U8 *name);
 
 VOS_STATUS hdd_register_hostapd(hdd_adapter_t *pAdapter, tANI_U8 rtnl_held);
 
@@ -218,25 +215,6 @@ hdd_change_ch_avoidance_status(hdd_context_t *hdd_ctx,
     spin_lock(&hdd_ctx->sap_update_info_lock);
     hdd_ctx->is_ch_avoid_in_progress = value;
     spin_unlock(&hdd_ctx->sap_update_info_lock);
-    hddLog(LOG1, FL("is_ch_avoid_in_progress %d"), value);
 }
 
-#ifdef FEATURE_WLAN_SUB_20_MHZ
-bool hdd_hostapd_sub20_channelwidth_can_switch(
-	hdd_adapter_t *adapter, uint32_t *sub20_channel_width);
-bool hdd_hostapd_sub20_channelwidth_can_restore(
-	hdd_adapter_t *adapter);
-#else
-static inline bool hdd_hostapd_sub20_channelwidth_can_switch(
-	hdd_adapter_t *adapter, uint32_t *sub20_channel_width)
-{
-	return false;
-}
-
-static inline bool hdd_hostapd_sub20_channelwidth_can_restore(
-	hdd_adapter_t *adapter)
-{
-	return false;
-}
-#endif
 #endif    // end #if !defined( WLAN_HDD_HOSTAPD_H )

@@ -38,7 +38,7 @@
 #include "palTypes.h"
 #include "aniGlobal.h"
 #include "sirCommon.h"
-#include "wni_cfg.h"
+#include "wniCfgSta.h"
 #include "limUtils.h"
 #include "limAssocUtils.h"
 #include "limStaHashApi.h"
@@ -1128,8 +1128,7 @@ __limIbssSearchAndDeletePeer(tpAniSirGlobal pMac,
 					pPrevNode = pMac->lim.gLimIbssPeerList;
 				} else
 					pPrevNode->next = pTempNode->next;
-				if (pTempNode->beacon)
-					vos_mem_free(pTempNode->beacon);
+
 				vos_mem_free(pTempNode);
 				pMac->lim.gLimNumIbssPeers--;
 
@@ -1644,8 +1643,6 @@ void limIbssHeartBeatHandle(tpAniSirGlobal pMac,tpPESession psessionEntry)
                 else
                     pPrevNode->next = pTempNode->next;
 
-                if (pTempNode->beacon)
-                    vos_mem_free(pTempNode->beacon);
                 vos_mem_free(pTempNode);
                 pMac->lim.gLimNumIbssPeers--;
 

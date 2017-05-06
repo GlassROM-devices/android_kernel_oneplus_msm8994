@@ -40,7 +40,7 @@
 #include "wniApi.h"
 #include "sirApi.h"
 #include "aniGlobal.h"
-#include "wni_cfg.h"
+#include "wniCfgSta.h"
 #include "schApi.h"
 #include "utilsApi.h"
 #include "limTypes.h"
@@ -2349,9 +2349,7 @@ limProcessActionFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,tpPESession ps
     }
 #if defined WLAN_FEATURE_VOWIFI
     case SIR_MAC_ACTION_RRM:
-        /* Ignore RRM measurement request until DHCP is set */
-        if (pMac->rrm.rrmPEContext.rrmEnable &&
-           pMac->roam.roamSession[psessionEntry->smeSessionId].dhcp_done)
+        if( pMac->rrm.rrmPEContext.rrmEnable )
         {
             switch(pActionHdr->actionID) {
                 case SIR_MAC_RRM_RADIO_MEASURE_REQ:
@@ -2373,11 +2371,9 @@ limProcessActionFrame(tpAniSirGlobal pMac, tANI_U8 *pRxPacketInfo,tpPESession ps
         }
         else
         {
-            /* Else we will just ignore the RRM messages.*/
+            // Else we will just ignore the RRM messages.
             limLog(pMac, LOG1,
-              FL("RRM Action frame ignored as rrmEnable is %d or DHCP not completed %d"),
-              pMac->rrm.rrmPEContext.rrmEnable,
-              pMac->roam.roamSession[psessionEntry->smeSessionId].dhcp_done);
+              FL("RRM Action frame ignored as RRM is disabled in cfg"));
         }
         break;
 #endif

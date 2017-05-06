@@ -81,12 +81,6 @@ ol_tx_ll(ol_txrx_vdev_handle vdev, adf_nbuf_t msdu_list)
     v_CONTEXT_t vos_ctx = vos_get_global_context(VOS_MODULE_ID_SYS, NULL);
     void *adf_ctx = vos_get_context(VOS_MODULE_ID_ADF, vos_ctx);
 
-    if (!adf_ctx) {
-        TXRX_PRINT(TXRX_PRINT_LEVEL_ERR,
-                   "%s: adf_ctx is NULL\n", __func__);
-        return msdu_list;
-    }
-
     msdu_info.htt.info.l2_hdr_type = vdev->pdev->htt_pkt_type;
     msdu_info.htt.action.tx_comp_req = 0;
     /*
@@ -102,10 +96,8 @@ ol_tx_ll(ol_txrx_vdev_handle vdev, adf_nbuf_t msdu_list)
         msdu_info.htt.info.ext_tid = adf_nbuf_get_tid(msdu);
         msdu_info.peer = NULL;
 
-        if (!adf_nbuf_is_ipa_nbuf(msdu)) {
-            adf_nbuf_map_single(adf_ctx, msdu,
+        adf_nbuf_map_single(adf_ctx, msdu,
                              ADF_OS_DMA_TO_DEVICE);
-        }
         ol_tx_prepare_ll(tx_desc, vdev, msdu, &msdu_info);
 
         /*
@@ -119,7 +111,7 @@ ol_tx_ll(ol_txrx_vdev_handle vdev, adf_nbuf_t msdu_list)
          * tx_send call.
          */
         next = adf_nbuf_next(msdu);
-        ol_tx_send(vdev->pdev, tx_desc, msdu, vdev->vdev_id);
+        ol_tx_send(vdev->pdev, tx_desc, msdu);
         msdu = next;
     }
     return NULL; /* all MSDUs were accepted */
@@ -210,7 +202,7 @@ ol_tx_vdev_ll_pause_queue_send_base(struct ol_txrx_vdev_t *vdev)
              */
             if (tx_msdu) {
                 adf_nbuf_unmap(vdev->pdev->osdev, tx_msdu, ADF_OS_DMA_TO_DEVICE);
-                adf_nbuf_tx_free(tx_msdu, ADF_NBUF_PKT_ERROR);
+                adf_nbuf_tx_free(tx_msdu, 1 /* error */);
             }
         }
     }
@@ -250,7 +242,7 @@ ol_tx_vdev_pause_queue_append(
         DPTRACE(adf_dp_trace(msdu_list,
                 ADF_DP_TRACE_TXRX_QUEUE_PACKET_PTR_RECORD,
                 adf_nbuf_data_addr(msdu_list),
-                sizeof(adf_nbuf_data(msdu_list)), ADF_TX));
+                sizeof(adf_nbuf_data(msdu_list))));
 
         vdev->ll_pause.txq.depth++;
         if (!vdev->ll_pause.txq.head) {
@@ -397,7 +389,7 @@ ol_tx_pdev_ll_pause_queue_send_all(struct ol_txrx_pdev_t *pdev)
                  */
                 if (tx_msdu) {
                     adf_nbuf_unmap(pdev->osdev, tx_msdu, ADF_OS_DMA_TO_DEVICE);
-                    adf_nbuf_tx_free(tx_msdu, ADF_NBUF_PKT_ERROR);
+                    adf_nbuf_tx_free(tx_msdu, 1 /* error */);
                 }
             }
             /*check if there are more msdus to transmit*/
@@ -522,7 +514,7 @@ ol_tx_non_std_ll(
          * downloaded to the target via the HTT tx descriptor.
          */
         htt_tx_desc_display(tx_desc->htt_tx_desc);
-        ol_tx_send(vdev->pdev, tx_desc, msdu, vdev->vdev_id);
+        ol_tx_send(vdev->pdev, tx_desc, msdu);
         msdu = next;
     }
     return NULL; /* all MSDUs were accepted */
@@ -634,8 +626,6 @@ static void merge_ocb_tx_ctrl_hdr(struct ocb_tx_ctrl_hdr_t *tx_ctrl,
 	}
 }
 
-#define MAX_RADIOTAP_LEN 256
-
 static inline adf_nbuf_t
 ol_tx_hl_base(
     ol_txrx_vdev_handle vdev,
@@ -645,13 +635,10 @@ ol_tx_hl_base(
 {
     struct ol_txrx_pdev_t *pdev = vdev->pdev;
     adf_nbuf_t msdu = msdu_list;
-    adf_nbuf_t msdu_drop_list = NULL;
     struct ol_txrx_msdu_info_t tx_msdu_info;
     struct ocb_tx_ctrl_hdr_t tx_ctrl;
 
     htt_pdev_handle htt_pdev = pdev->htt_pdev;
-    uint8_t rtap[MAX_RADIOTAP_LEN];
-    uint8_t rtap_len = 0;
     tx_msdu_info.peer = NULL;
 
     /*
@@ -662,7 +649,6 @@ ol_tx_hl_base(
      */
     while (msdu) {
         adf_nbuf_t next;
-        adf_nbuf_t prev_drop;
         struct ol_tx_frms_queue_t *txq;
         struct ol_tx_desc_t *tx_desc = NULL;
 
@@ -675,35 +661,12 @@ ol_tx_hl_base(
          */
         next = adf_nbuf_next(msdu);
 
-        /*
-         * copy radiotap header out first.
-         */
-        if (VOS_MONITOR_MODE == vos_get_conparam()) {
-            struct ieee80211_radiotap_header *rthdr;
-            rthdr = (struct ieee80211_radiotap_header *)(adf_nbuf_data(msdu));
-            rtap_len = rthdr->it_len;
-            if (rtap_len > MAX_RADIOTAP_LEN) {
-                TXRX_PRINT(TXRX_PRINT_LEVEL_ERR,
-                           "radiotap length exceeds %d, drop it!\n",
-                           MAX_RADIOTAP_LEN);
-                adf_nbuf_set_next(msdu, NULL);
-                if (!msdu_drop_list)
-                    msdu_drop_list = msdu;
-                else
-                    adf_nbuf_set_next(prev_drop, msdu);
-                prev_drop = msdu;
-                msdu = next;
-                continue;
-            }
-            adf_os_mem_copy(rtap, rthdr, rtap_len);
-            adf_nbuf_pull_head(msdu, rtap_len);
-        }
-
 #if defined(CONFIG_TX_DESC_HI_PRIO_RESERVE)
         if (adf_os_atomic_read(&pdev->tx_queue.rsrc_cnt) >
                                         TXRX_HL_TX_DESC_HI_PRIO_RESERVED) {
             tx_desc = ol_tx_desc_hl(pdev, vdev, msdu, &tx_msdu_info);
-        } else if (ADF_NBUF_GET_IS_DHCP(msdu) || ADF_NBUF_GET_IS_EAPOL(msdu)) {
+        } else if ((adf_nbuf_is_dhcp_pkt(msdu) == A_STATUS_OK)
+                          || (adf_nbuf_is_eapol_pkt(msdu) == A_STATUS_OK)) {
             tx_desc = ol_tx_desc_hl(pdev, vdev, msdu, &tx_msdu_info);
             TXRX_PRINT(TXRX_PRINT_LEVEL_ERR,
                 "Provided tx descriptor from reserve pool for DHCP/EAPOL\n");
@@ -717,11 +680,7 @@ ol_tx_hl_base(
              * tx descs for the remaining MSDUs.
              */
             TXRX_STATS_MSDU_LIST_INCR(pdev, tx.dropped.host_reject, msdu);
-            if (!msdu_drop_list)
-                msdu_drop_list = msdu;
-            else
-                adf_nbuf_set_next(prev_drop, msdu);
-            return msdu_drop_list; /* the list of unaccepted MSDUs */
+            return msdu; /* the list of unaccepted MSDUs */
         }
 
 //        OL_TXRX_PROT_AN_LOG(pdev->prot_an_tx_sent, msdu);
@@ -832,16 +791,6 @@ ol_tx_hl_base(
          */
         htt_tx_desc_display(tx_desc->htt_tx_desc);
 
-        /* push radiotap as extra frag */
-        if (VOS_MONITOR_MODE == vos_get_conparam()) {
-            adf_nbuf_frag_push_head(
-                    msdu,
-                    rtap_len,
-                    (uint8_t *)rtap, /* virtual addr */
-                    0, 0 /* phys addr MSBs - n/a */);
-                    adf_nbuf_set_frag_is_wordstream(msdu, 1, 1);
-        }
-
         ol_tx_enqueue(pdev, txq, tx_desc, &tx_msdu_info);
         if (tx_msdu_info.peer) {
             OL_TX_PEER_STATS_UPDATE(tx_msdu_info.peer, msdu);
@@ -855,7 +804,7 @@ MSDU_LOOP_BOTTOM:
     if (call_sched == true)
         ol_tx_sched(pdev);
 
-    return msdu_drop_list; /* all MSDUs were accepted */
+    return NULL; /* all MSDUs were accepted */
 }
 
 /**
@@ -898,7 +847,7 @@ ol_tx_pdev_reset_bundle_require(void* pdev_handle)
 
 	TAILQ_FOREACH(vdev, &pdev->vdev_list, vdev_list_elem) {
 		vdev->bundling_reqired = false;
-		TXRX_PRINT(TXRX_PRINT_LEVEL_INFO1,
+		TXRX_PRINT(TXRX_PRINT_LEVEL_ERR,
 			"vdev_id %d bundle_require %d\n",
 			vdev->vdev_id, vdev->bundling_reqired);
     }
@@ -931,7 +880,7 @@ ol_tx_vdev_set_bundle_require(uint8_t vdev_id, unsigned long tx_bytes,
 		vdev->bundling_reqired = false;
 
 	if (old_bundle_required != vdev->bundling_reqired)
-		TXRX_PRINT(TXRX_PRINT_LEVEL_INFO1,
+		TXRX_PRINT(TXRX_PRINT_LEVEL_ERR,
 			"vdev_id %d bundle_require %d tx_bytes %ld time_in_ms %d high_th %d low_th %d\n",
 			vdev->vdev_id, vdev->bundling_reqired, tx_bytes,
 			time_in_ms, high_th, low_th);
@@ -1326,39 +1275,7 @@ adf_nbuf_t ol_tx_reinject(
 
     htt_tx_desc_set_peer_id(tx_desc->htt_tx_desc, peer_id);
 
-    ol_tx_send(vdev->pdev, tx_desc, msdu, vdev->vdev_id);
+    ol_tx_send(vdev->pdev, tx_desc, msdu);
 
     return NULL;
 }
-
-#ifdef MAC_NOTIFICATION_FEATURE
-/**
- * ol_tx_failure_cb_set() - add TX failure callback
- * @pdev: PDEV TXRX handle
- * @tx_failure_cb: TX failure callback
- */
-void
-ol_tx_failure_cb_set(struct ol_txrx_pdev_t *pdev,
-		     void (*tx_failure_cb)(void *ctx,
-					   unsigned int num_msdu,
-					   unsigned char tid,
-					   unsigned int status))
-{
-	pdev->tx_failure_cb = tx_failure_cb;
-}
-
-/**
- * ol_tx_failure_indication() - indicate TX failure to user layer
- * @pdev: Pdev TXRX handle
- * @tid: TID
- * @msdu_num: number of MSDUs with the same failure status
- * @status: failure status
- */
-void
-ol_tx_failure_indication(struct ol_txrx_pdev_t *pdev, uint8_t tid,
-			 uint32_t msdu_num, uint32_t status)
-{
-	if (pdev->tx_failure_cb && (status != htt_tx_status_ok))
-		pdev->tx_failure_cb(pdev, msdu_num, tid, status);
-}
-#endif

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2016 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -270,30 +270,7 @@ int __hdd_softap_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
 
    while (skb) {
        skb_next = skb->next;
-       /* memset skb control block */
-       vos_mem_zero(skb->cb, sizeof(skb->cb));
-       wlan_hdd_classify_pkt(skb);
-
        pDestMacAddress = (v_MACADDR_t*)skb->data;
-
-/*
-* The TCP TX throttling logic is changed a little after 3.19-rc1 kernel,
-* the TCP sending limit will be smaller, which will throttle the TCP packets
-* to the host driver. The TCP UP LINK throughput will drop heavily.
-* In order to fix this issue, need to orphan the socket buffer asap, which will
-* call skb's destructor to notify the TCP stack that the SKB buffer is
-* unowned. And then the TCP stack will pump more packets to host driver.
-*
-* The TX packets might be dropped for UDP case in the iperf testing.
-* So need to be protected by follow control.
-*/
-#ifdef QCA_LL_TX_FLOW_CT
-#if (LINUX_VERSION_CODE > KERNEL_VERSION(3,19,0))
-       if (pAdapter->tx_flow_low_watermark > 0) {
-           skb_orphan(skb);
-       }
-#endif
-#endif
 
        if (vos_is_macaddr_broadcast( pDestMacAddress ) ||
            vos_is_macaddr_group(pDestMacAddress))
@@ -311,7 +288,7 @@ int __hdd_softap_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
                goto drop_pkt;
            }
 
-           if (STAId == HDD_WLAN_INVALID_STA_ID || STAId >= WLAN_MAX_STA_COUNT)
+           if (STAId == HDD_WLAN_INVALID_STA_ID)
            {
                VOS_TRACE( VOS_MODULE_ID_HDD_SAP_DATA, VOS_TRACE_LEVEL_WARN,
                           "%s: Failed to find right station", __func__);
@@ -378,6 +355,9 @@ int __hdd_softap_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
        ac = hdd_QdiscAcToTlAC[skb->queue_mapping];
        ++pAdapter->hdd_stats.hddTxRxStats.txXmitClassifiedAC[ac];
 
+       adf_dp_trace_log_pkt(pAdapter->sessionId, skb,
+                          WIFI_EVENT_DRIVER_EAPOL_FRAME_TRANSMIT_REQUESTED);
+
 #ifdef QCA_PKT_PROTO_TRACE
        if ((hddCtxt->cfg_ini->gEnableDebugLog & VOS_PKT_TRAC_TYPE_EAPOL) ||
            (hddCtxt->cfg_ini->gEnableDebugLog & VOS_PKT_TRAC_TYPE_DHCP))
@@ -410,11 +390,6 @@ int __hdd_softap_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
        pAdapter->stats.tx_bytes += skb->len;
        ++pAdapter->stats.tx_packets;
 
-       /* Per peer tx/rx statistics */
-       pAdapter->aStaInfo[STAId].tx_packets++;
-       pAdapter->aStaInfo[STAId].tx_bytes += skb->len;
-       pAdapter->aStaInfo[STAId].last_tx_rx_ts = vos_system_ticks();
-
        if (!list_head) {
            list_head = skb;
            list_tail = skb;
@@ -422,22 +397,19 @@ int __hdd_softap_hard_start_xmit(struct sk_buff *skb, struct net_device *dev)
            list_tail->next = skb;
            list_tail = list_tail->next;
        }
-
-       adf_dp_trace_log_pkt(pAdapter->sessionId, skb, ADF_TX);
+       vos_mem_zero(skb->cb, sizeof(skb->cb));
        NBUF_SET_PACKET_TRACK(skb, NBUF_TX_PKT_DATA_TRACK);
        NBUF_UPDATE_TX_PKT_COUNT(skb, NBUF_TX_PKT_HDD);
 
-       adf_dp_trace_set_track(skb, ADF_TX);
-       DPTRACE(adf_dp_trace(skb, ADF_DP_TRACE_HDD_TX_PACKET_PTR_RECORD,
-                  (uint8_t *)&skb->data, sizeof(skb->data), ADF_TX));
-       DPTRACE(adf_dp_trace(skb, ADF_DP_TRACE_HDD_TX_PACKET_RECORD,
-                  (uint8_t *)skb->data, adf_nbuf_len(skb), ADF_TX));
-
-       if (adf_nbuf_len(skb) > ADF_DP_TRACE_RECORD_SIZE)
-            DPTRACE(adf_dp_trace(skb, ADF_DP_TRACE_HDD_TX_PACKET_RECORD,
-                    (uint8_t *)&skb->data[ADF_DP_TRACE_RECORD_SIZE],
-                    (adf_nbuf_len(skb) - ADF_DP_TRACE_RECORD_SIZE),
-                    ADF_TX));
+       adf_dp_trace_set_track(skb);
+       DPTRACE(adf_dp_trace(skb, ADF_DP_TRACE_HDD_PACKET_PTR_RECORD,
+                  (uint8_t *)&skb->data, sizeof(skb->data)));
+       DPTRACE(adf_dp_trace(skb, ADF_DP_TRACE_HDD_PACKET_RECORD,
+                  (uint8_t *)skb->data, skb->len));
+       if (skb->len > ADF_DP_TRACE_RECORD_SIZE)
+            DPTRACE(adf_dp_trace(skb, ADF_DP_TRACE_HDD_PACKET_RECORD,
+                  (uint8_t *)&skb->data[ADF_DP_TRACE_RECORD_SIZE],
+                  (skb->len - ADF_DP_TRACE_RECORD_SIZE)));
 
        skb = skb_next;
        continue;
@@ -507,7 +479,7 @@ static void __hdd_softap_tx_timeout(struct net_device *dev)
    int i = 0;
 
    DPTRACE(adf_dp_trace(NULL, ADF_DP_TRACE_HDD_SOFTAP_TX_TIMEOUT,
-                        NULL, 0, ADF_TX));
+                        NULL, 0));
 
    hdd_ctx = WLAN_HDD_GET_CTX(adapter);
    if (hdd_ctx->isLogpInProgress) {
@@ -874,25 +846,8 @@ VOS_STATUS hdd_softap_rx_packet_cbk(v_VOID_t *vosContext,
       ++pAdapter->stats.rx_packets;
       pAdapter->stats.rx_bytes += skb->len;
 
-      pAdapter->aStaInfo[staId].rx_packets++;
-      pAdapter->aStaInfo[staId].rx_bytes += skb->len;
-      pAdapter->aStaInfo[staId].last_tx_rx_ts = vos_system_ticks();
-
-      DPTRACE(adf_dp_trace(skb,
-              ADF_DP_TRACE_RX_HDD_PACKET_PTR_RECORD,
-              adf_nbuf_data_addr(skb),
-              sizeof(adf_nbuf_data(skb)), ADF_RX));
-      DPTRACE(adf_dp_trace(skb,
-              ADF_DP_TRACE_HDD_RX_PACKET_RECORD,
-              (uint8_t *)skb->data, adf_nbuf_len(skb), ADF_RX));
-
-      if (adf_nbuf_len(skb) > ADF_DP_TRACE_RECORD_SIZE)
-          DPTRACE(adf_dp_trace(skb,
-                  ADF_DP_TRACE_HDD_RX_PACKET_RECORD,
-                  (uint8_t *)&skb->data[ADF_DP_TRACE_RECORD_SIZE],
-                  (adf_nbuf_len(skb) - ADF_DP_TRACE_RECORD_SIZE),
-                  ADF_RX));
-
+      adf_dp_trace_log_pkt(pAdapter->sessionId, skb,
+          WIFI_EVENT_DRIVER_EAPOL_FRAME_RECEIVED);
 #ifdef QCA_PKT_PROTO_TRACE
       if ((pHddCtx->cfg_ini->gEnableDebugLog & VOS_PKT_TRAC_TYPE_EAPOL) ||
           (pHddCtx->cfg_ini->gEnableDebugLog & VOS_PKT_TRAC_TYPE_DHCP)) {
@@ -922,12 +877,6 @@ VOS_STATUS hdd_softap_rx_packet_cbk(v_VOID_t *vosContext,
 
       skb->protocol = eth_type_trans(skb, skb->dev);
 
-      /**
-       * Remove SKB from internal tracking table before submitting it
-       * to stack.
-       */
-      adf_net_buf_debug_release_skb(skb);
-
       /*
        * If this is not a last packet on the chain
        * Just put packet into backlog queue, not scheduling RX sirq
@@ -938,9 +887,9 @@ VOS_STATUS hdd_softap_rx_packet_cbk(v_VOID_t *vosContext,
          if ((pHddCtx->cfg_ini->rx_wakelock_timeout) &&
              (PACKET_BROADCAST != skb->pkt_type) &&
              (PACKET_MULTICAST != skb->pkt_type))
-               vos_wake_lock_timeout_acquire(&pHddCtx->rx_wake_lock,
-                              pHddCtx->cfg_ini->rx_wakelock_timeout,
-                              WIFI_POWER_EVENT_WAKELOCK_HOLD_RX);
+	    vos_wake_lock_timeout_acquire(&pHddCtx->rx_wake_lock,
+                        pHddCtx->cfg_ini->rx_wakelock_timeout,
+                        WIFI_POWER_EVENT_WAKELOCK_HOLD_RX);
          /*
           * This is the last packet on the chain
           * Scheduling rx sirq

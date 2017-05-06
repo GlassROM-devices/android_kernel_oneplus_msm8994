@@ -38,7 +38,7 @@
  */
 
 #include "wniApi.h"
-#include "wni_cfg.h"
+#include "wniCfgSta.h"
 #include "aniGlobal.h"
 #include "schApi.h"
 #include "utilsApi.h"

@@ -644,14 +644,6 @@ typedef struct
 
 void *tlshim_peer_validity(void *vos_ctx, uint8_t sta_id);
 
-/**
- * tlshim_selfpeer_vdev() - get vdev of self peer
- * @vos_ctx		vos context
- *
- * Return: on success return vdev, NULL when self peer is invalid/NULL
- */
-void *tlshim_selfpeer_vdev(void *vos_ctx);
-
 /*==========================================================================
 
   FUNCTION    WLANTL_Open
@@ -906,14 +898,6 @@ WLANTL_ClearSTAClient
   v_PVOID_t        pvosGCtx,
   v_U8_t           ucSTAId
 );
-
-/*===========================================================================
- * tl_shim_flush_cache_rx_queue() - flush cache rx queue frame
- *
- *
- * Return: None
- ============================================================================*/
-void tl_shim_flush_cache_rx_queue(void);
 
 /*===========================================================================
 

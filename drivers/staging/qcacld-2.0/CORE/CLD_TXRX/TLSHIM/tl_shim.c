@@ -873,17 +873,17 @@ static int tlshim_mgmt_rx_wmi_handler(void *context, u_int8_t *data,
 	VOS_STATUS ret = VOS_STATUS_SUCCESS;
 
 	if (vos_is_logp_in_progress(VOS_MODULE_ID_TL, NULL)) {
-			TLSHIM_LOGD("%s: LOGP in progress\n", __func__);
+			TLSHIM_LOGE("%s: LOGP in progress\n", __func__);
 			return (-1);
 	}
 
 	if (vos_is_load_unload_in_progress(VOS_MODULE_ID_TL, NULL)) {
-			TLSHIM_LOGD("%s: load/unload in progress\n", __func__);
+			TLSHIM_LOGE("%s: load/unload in progress\n", __func__);
 			return (-1);
 	}
 
 	if (!tl_shim) {
-		TLSHIM_LOGD("%s: tl shim ctx is NULL\n", __func__);
+		TLSHIM_LOGE("%s: tl shim ctx is NULL\n", __func__);
 		return (-1);
 	}
 
@@ -1254,39 +1254,13 @@ void *tlshim_peer_validity(void *vos_ctx, uint8_t sta_id)
 	}
 
 	peer = ol_txrx_peer_find_by_local_id(
-			vos_get_context(VOS_MODULE_ID_TXRX,vos_ctx),
+			((pVosContextType) vos_ctx)->pdev_txrx_ctx,
 			sta_id);
 	if (!peer) {
 		TLSHIM_LOGW("Invalid peer");
 		return NULL;
 	} else {
 		return (void *)peer->vdev;
-	}
-}
-
-/**
- * tlshim_selfpeer_vdev() - get the vdev of self peer
- * @vos_ctx: vos context
- *
- * Return: on success return vdev, NULL when self peer is invalid/NULL
- */
-void *tlshim_selfpeer_vdev(void *vos_ctx)
-{
-	struct ol_txrx_pdev_t *pdev = vos_get_context(VOS_MODULE_ID_TXRX,
-							   vos_ctx);
-	struct ol_txrx_peer_t *peer;
-
-	if (!pdev) {
-		TLSHIM_LOGE("Txrx pdev is NULL");
-		return NULL;
-	}
-
-	peer = pdev->self_peer;
-	if (!peer) {
-		TLSHIM_LOGW("Invalid peer");
-		return NULL;
-	} else {
-		return peer->vdev;
 	}
 }
 
@@ -1815,7 +1789,6 @@ VOS_STATUS WLANTL_ClearSTAClient(void *vos_ctx, u_int8_t sta_id)
 	}
 #endif
 
-	TLSHIM_LOGD("%s: called for sta_id %d", __func__, sta_id);
 	/* Purge the cached rx frame queue */
 	tl_shim_flush_rx_frames(vos_ctx, tl_shim, sta_id, 1);
 	adf_os_spin_lock_bh(&tl_shim->bufq_lock);
@@ -1829,30 +1802,6 @@ VOS_STATUS WLANTL_ClearSTAClient(void *vos_ctx, u_int8_t sta_id)
 	adf_os_spin_unlock_bh(&tl_shim->sta_info[sta_id].stainfo_lock);
 
 	return VOS_STATUS_SUCCESS;
-}
-
-void tl_shim_flush_cache_rx_queue(void)
-{
-    void *vos_ctx = vos_get_global_context(VOS_MODULE_ID_TL, NULL);
-    struct txrx_tl_shim_ctx *tl_shim;
-    u_int8_t sta_id;
-
-    if (!vos_ctx) {
-        TLSHIM_LOGE("%s, Global VOS context is Null\n", __func__);
-        return;
-    }
-
-    tl_shim = vos_get_context(VOS_MODULE_ID_TL, vos_ctx);
-    if (!tl_shim) {
-        TLSHIM_LOGE("%s, tl_shim is NULL\n", __func__);
-        return;
-    }
-
-    TLSHIM_LOGD("%s: called to flush cache rx queue.\n", __func__);
-    for (sta_id = 0; sta_id < WLAN_MAX_STA_COUNT; sta_id++)
-        tl_shim_flush_rx_frames(vos_ctx, tl_shim, sta_id, 1);
-
-    return;
 }
 
 /*
@@ -1896,7 +1845,6 @@ VOS_STATUS WLANTL_RegisterSTAClient(void *vos_ctx,
 	sta_info->vdev_id = peer->vdev->vdev_id;
 	adf_os_spin_unlock_bh(&sta_info->stainfo_lock);
 
-	TLSHIM_LOGD("%s: called for sta_id %d", __func__, sta_desc->ucSTAId);
 	param.qos_capable =  sta_desc->ucQosEnabled;
 	wdi_in_peer_update(peer->vdev, peer->mac_addr.raw, &param,
 			   ol_txrx_peer_update_qos_capable);
@@ -2012,7 +1960,6 @@ VOS_STATUS WLANTL_Close(void *vos_ctx)
 VOS_STATUS WLANTL_Open(void *vos_ctx, WLANTL_ConfigInfoType *tl_cfg)
 {
 	struct txrx_tl_shim_ctx *tl_shim;
-	ol_txrx_pdev_handle txrx_pdev;
 	VOS_STATUS status;
 	u_int8_t i;
 	int max_vdev;
@@ -2023,7 +1970,7 @@ VOS_STATUS WLANTL_Open(void *vos_ctx, WLANTL_ConfigInfoType *tl_cfg)
 	if (status != VOS_STATUS_SUCCESS)
 		return status;
 
-	txrx_pdev = ((pVosContextType) vos_ctx)->pdev_txrx_ctx =
+	((pVosContextType) vos_ctx)->pdev_txrx_ctx =
 				wdi_in_pdev_attach(
 					((pVosContextType) vos_ctx)->cfg_ctx,
 					((pVosContextType) vos_ctx)->htc_ctx,
@@ -2033,8 +1980,6 @@ VOS_STATUS WLANTL_Open(void *vos_ctx, WLANTL_ConfigInfoType *tl_cfg)
 		vos_free_context(vos_ctx, VOS_MODULE_ID_TL, tl_shim);
 		return VOS_STATUS_E_NOMEM;
 	}
-
-	ol_tx_failure_cb_set(txrx_pdev, wma_tx_failure_cb);
 
 	adf_os_spinlock_init(&tl_shim->bufq_lock);
 	adf_os_spinlock_init(&tl_shim->mgmt_lock);
@@ -2787,21 +2732,17 @@ void WLANTL_clear_datapath_stats(void *vos_ctx, uint16_t bitmap)
 	return;
 }
 
-/**
- * tlshim_get_intra_bss_fwd_pkts_count() - to get the total tx and rx packets
- *    that have been forwarded from txrx layer without coming to upper layers.
- * @session_id: session id/vdev id
- * @fwd_tx_packets: pointer to forwarded tx packets count parameter
- * @fwd_rx_packets: pointer to forwarded rx packets count parameter
+/* tlshim_get_fwd_to_tx_packet_count() - to get the total rx packets that have
+ *   been directly forwarded to tx without coming to upper layers
  *
- * Returns: status -> A_OK - success, A_ERROR - failure
+ * @session_id: session id/vdev id
+ *
+ * Returns: forwarded packet count
  *
  */
-A_STATUS tlshim_get_intra_bss_fwd_pkts_count(uint8_t session_id,
-		unsigned long *fwd_tx_packets, unsigned long *fwd_rx_packets)
+uint64_t tlshim_get_fwd_to_tx_packet_count(uint8_t session_id)
 {
-	return ol_get_intra_bss_fwd_pkts_count(session_id, fwd_tx_packets,
-							fwd_rx_packets);
+	return ol_rx_get_fwd_to_tx_packet_count(session_id);
 }
 
 /*

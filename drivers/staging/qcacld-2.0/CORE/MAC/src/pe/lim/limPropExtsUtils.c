@@ -39,7 +39,7 @@
  *
  */
 #include "aniGlobal.h"
-#include "wni_cfg.h"
+#include "wniCfgSta.h"
 #include "sirCommon.h"
 #include "sirDebug.h"
 #include "utilsApi.h"
@@ -153,7 +153,7 @@ limExtractApCapability(tpAniSirGlobal pMac, tANI_U8 *pIE, tANI_U16 ieLen,
             psessionEntry->vhtTxChannelWidthSet = vht_ch_wd;
 
             if (pBeaconStruct->Vendor1IEPresent &&
-                pBeaconStruct->vendor2_ie.present &&
+                pBeaconStruct->Vendor2IEPresent &&
                 pBeaconStruct->Vendor3IEPresent)
             {
                 if (((pBeaconStruct->VHTCaps.txMCSMap & VHT_MCS_3x3_MASK) ==
@@ -234,11 +234,6 @@ limExtractApCapability(tpAniSirGlobal pMac, tANI_U8 *pIE, tANI_U16 ieLen,
     /* Check if Extended caps are present in probe resp or not */
     if (pBeaconStruct->ExtCap.present)
         psessionEntry->is_ext_caps_present = true;
-
-    if (pBeaconStruct->vendor_sub20_capability != 0)
-        psessionEntry->sap_sub20_channelwidth =
-                       pBeaconStruct->vendor_sub20_capability;
-
     vos_mem_free(pBeaconStruct);
     return;
 } /****** end limExtractApCapability() ******/

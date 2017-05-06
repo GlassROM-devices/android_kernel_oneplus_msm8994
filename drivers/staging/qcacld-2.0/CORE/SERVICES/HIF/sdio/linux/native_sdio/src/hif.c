@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2016 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -45,7 +45,6 @@
 #define HIF_USE_DMA_BOUNCE_BUFFER 1
 #define ATH_MODULE_NAME hif
 #include "a_debug.h"
-#include "vos_sched.h"
 
 #if HIF_USE_DMA_BOUNCE_BUFFER
 /* macro to check if DMA buffer is WORD-aligned and DMA-able.  Most host controllers assume the
@@ -368,7 +367,7 @@ __HIFReadWrite(HIF_DEVICE *device,
 {
     A_UINT8 opcode;
     A_STATUS    status = A_OK;
-    int ret = 0;
+    int     ret;
     A_UINT8 *tbuffer;
     A_BOOL   bounced = FALSE;
 
@@ -821,7 +820,6 @@ static int tx_completion_task(void *param)
  */
 static inline void tx_completion_sem_init(HIF_DEVICE *device)
 {
-	spin_lock_init(&device->tx_completion_lock);
 	sema_init(&device->sem_tx_completion, 0);
 }
 
@@ -1505,6 +1503,39 @@ HIFSetMboxSleep(HIF_DEVICE *device, bool sleep, bool wait, bool cache)
 }
 #endif
 
+/* handle HTC startup via thread*/
+static int startup_task(void *param)
+{
+    HIF_DEVICE *device;
+
+    device = (HIF_DEVICE *)param;
+    AR_DEBUG_PRINTF(ATH_DEBUG_TRACE, ("AR6000: call HTC from startup_task\n"));
+        /* start  up inform DRV layer */
+    if ((osdrvCallbacks.deviceInsertedHandler(osdrvCallbacks.context,device)) != A_OK) {
+        AR_DEBUG_PRINTF(ATH_DEBUG_TRACE, ("AR6000: Device rejected\n"));
+    }
+    return 0;
+}
+
+#if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,27) && defined(CONFIG_PM)
+static int enable_task(void *param)
+{
+    HIF_DEVICE *device;
+    device = (HIF_DEVICE *)param;
+    AR_DEBUG_PRINTF(ATH_DEBUG_TRACE, ("AR6000: call  from resume_task\n"));
+
+        /* start  up inform DRV layer */
+    if (device &&
+        device->claimedContext &&
+        osdrvCallbacks.devicePowerChangeHandler &&
+        osdrvCallbacks.devicePowerChangeHandler(device->claimedContext, HIF_DEVICE_POWER_UP) != A_OK)
+    {
+        AR_DEBUG_PRINTF(ATH_DEBUG_TRACE, ("AR6000: Device rejected\n"));
+    }
+
+    return 0;
+}
+#endif
 static int hifDeviceInserted(struct sdio_func *func, const struct sdio_device_id *id)
 {
     int i;
@@ -1515,10 +1546,14 @@ static int hifDeviceInserted(struct sdio_func *func, const struct sdio_device_id
     AR_DEBUG_PRINTF(ATH_DEBUG_TRACE,
             ("AR6000: hifDeviceInserted, Function: 0x%X, Vendor ID: 0x%X, Device ID: 0x%X, block size: 0x%X/0x%X\n",
              func->num, func->vendor, id->device, func->max_blksize, func->cur_blksize));
-
-    /* dma_mask should be populated here. Use the parent device's setting. */
-    func->dev.dma_mask = mmc_dev(func->card->host)->dma_mask;
-
+    /*
+    dma_mask should not be NULL, otherwise dma_map_single will crash.
+    TODO: check why dma_mask is NULL here
+    */
+    if (func->dev.dma_mask == NULL){
+        static u64 dma_mask = 0xFFFFFFFF;
+        func->dev.dma_mask = &dma_mask;
+    }
     for (i=0; i<MAX_HIF_DEVICES; ++i) {
         HIF_DEVICE *hifdevice = hif_devices[i];
         if (hifdevice && hifdevice->powerConfig == HIF_DEVICE_POWER_CUT &&
@@ -1959,17 +1994,15 @@ static A_STATUS hifDisableFunc(HIF_DEVICE *device, struct sdio_func *func)
 
 static A_STATUS hifEnableFunc(HIF_DEVICE *device, struct sdio_func *func)
 {
+    struct task_struct* pTask;
+    const char *taskName = NULL;
+    int (*taskFunc)(void *) = NULL;
     int ret = A_OK;
 
     ENTER("sdio_func 0x%p", func);
 
     AR_DEBUG_PRINTF(ATH_DEBUG_TRACE, ("AR6000: +hifEnableFunc\n"));
     device = getHifDevice(func);
-
-    if (!device) {
-        AR_DEBUG_PRINTF(ATH_DEBUG_ERR, ("HIF device is NULL\n"));
-        return A_EINVAL;
-    }
 
     if (device->is_disabled) {
         int setAsyncIRQ = 0;
@@ -2083,27 +2116,23 @@ static A_STATUS hifEnableFunc(HIF_DEVICE *device, struct sdio_func *func)
     }
 
     if (!device->claimedContext) {
-        AR_DEBUG_PRINTF(ATH_DEBUG_TRACE,
-            ("AR6k: call deviceInsertedHandler\n"));
-        ret = osdrvCallbacks.deviceInsertedHandler(
-            osdrvCallbacks.context,device);
-        /* start  up inform DRV layer */
-        if (ret != A_OK)
-            AR_DEBUG_PRINTF(ATH_DEBUG_TRACE,
-                ("AR6k: Device rejected error:%d \n", ret));
+        taskFunc = startup_task;
+        taskName = "AR6K startup";
+        ret = A_OK;
 #if LINUX_VERSION_CODE >= KERNEL_VERSION(2,6,27) && defined(CONFIG_PM)
     } else {
-        AR_DEBUG_PRINTF(ATH_DEBUG_TRACE,
-             ("AR6k: call devicePwrChangeApi\n"));
-        /* start  up inform DRV layer */
-        if (device->claimedContext &&
-            osdrvCallbacks.devicePowerChangeHandler &&
-            ((ret = osdrvCallbacks.devicePowerChangeHandler(
-                  device->claimedContext, HIF_DEVICE_POWER_UP)) != A_OK))
-                AR_DEBUG_PRINTF(ATH_DEBUG_TRACE,
-                    ("AR6k: Device rejected error:%d \n", ret));
+        taskFunc = enable_task;
+        taskName = "AR6K enable";
+        ret = A_PENDING;
 #endif /* CONFIG_PM */
     }
+    /* create resume thread */
+    pTask = kthread_create(taskFunc, (void *)device, taskName);
+    if (IS_ERR(pTask)) {
+        AR_DEBUG_PRINTF(ATH_DEBUG_ERROR, ("AR6000: %s(), to create enabel task\n", __FUNCTION__));
+        return A_ERROR;
+    }
+    wake_up_process(pTask);
     AR_DEBUG_PRINTF(ATH_DEBUG_TRACE, ("AR6000: -hifEnableFunc\n"));
 
     /* task will call the enable func, indicate pending */
@@ -2584,59 +2613,9 @@ static void hif_flush_async_task(HIF_DEVICE *device)
     }
 }
 
-/**
- * hif_reset_target() - Reset target device
- * @hif_device: pointer to hif_device structure
- *
- * Reset the target by invoking power off and power on
- * sequence to bring back target into active state.
- * This API shall be called only when driver load/unload
- * is in progress.
- *
- * Return: 0 on success, error for failure case.
- */
-static int hif_reset_target(HIF_DEVICE *hif_device)
-{
-	int ret;
-
-	if (!hif_device || !hif_device->func|| !hif_device->func->card) {
-		AR_DEBUG_PRINTF(ATH_DEBUG_ERROR,
-			("AR6000: %s invalid HIF DEVICE \n", __func__));
-		return -ENODEV;
-	}
-	/* Disable sdio func->pull down WLAN_EN-->pull down DAT_2 line */
-	ret = mmc_power_save_host(hif_device->func->card->host);
-	if(ret) {
-		AR_DEBUG_PRINTF(ATH_DEBUG_ERROR,
-			("AR6000: %s Failed to save mmc Power host %d\n",
-			__func__, ret));
-		goto done;
-	}
-
-	/* pull up DAT_2 line->pull up WLAN_EN-->Enable sdio func */
-	ret = mmc_power_restore_host(hif_device->func->card->host);
-	if(ret) {
-		AR_DEBUG_PRINTF(ATH_DEBUG_ERROR,
-			("AR6000: %s Failed to restore mmc Power host %d\n",
-			__func__, ret));
-	}
-
-done:
-	return ret;
-}
-
 void HIFDetachHTC(HIF_DEVICE *device)
 {
     hif_flush_async_task(device);
-    if (device->ctrl_response_timeout) {
-        /* Reset the target by invoking power off and power on sequence to
-         * the card to bring back into active state.
-         */
-        if(hif_reset_target(device))
-            VOS_BUG(0);
-        device->ctrl_response_timeout = false;
-    }
-
     A_MEMZERO(&device->htcCallbacks,sizeof(device->htcCallbacks));
 }
 
@@ -2773,10 +2752,6 @@ static void hif_sdio_device_removed(struct sdio_func *func)
 
 static int hif_sdio_device_reinit(struct sdio_func *func, const struct sdio_device_id * id)
 {
-	if (vos_is_load_unload_in_progress(VOS_MODULE_ID_HIF, NULL)) {
-		printk("Load/unload in progress, ignore SSR reinit\n");
-		return 0;
-	}
 	if ((func != NULL) && (id != NULL))
 		return hifDeviceInserted(func, id);
 	else
@@ -2788,18 +2763,9 @@ static int hif_sdio_device_reinit(struct sdio_func *func, const struct sdio_devi
 static void hif_sdio_device_shutdown(struct sdio_func *func)
 {
 	vos_set_logp_in_progress(VOS_MODULE_ID_HIF, TRUE);
-	if (vos_is_load_unload_in_progress(VOS_MODULE_ID_HIF, NULL)) {
-		vos_set_logp_in_progress(VOS_MODULE_ID_HIF, FALSE);
-		printk("Load/unload in progress, ignore SSR shutdown\n");
-		return;
-	}
-	vos_set_shutdown_in_progress(VOS_MODULE_ID_HIF, TRUE);
-	if (!vos_is_ssr_ready(__func__))
-		pr_err(" %s Host driver is not ready for SSR, attempting anyway\n", __func__);
 
 	if (func != NULL)
 		hifDeviceRemoved(func);
-	vos_set_shutdown_in_progress(VOS_MODULE_ID_HIF, FALSE);
 }
 
 static void hif_sdio_crash_shutdown(struct sdio_func *func)
@@ -2816,28 +2782,5 @@ static int hif_sdio_device_resume(struct device *dev)
 {
 	return hifDeviceResume(dev);
 }
-
 #endif
 #endif
-
-/**
- * hif_set_target_reset() - Reset target device
- * @hif_device: pointer to hif_device structure
- *
- * Set the target reset flag.
- * This API shall be called only when driver load/unload
- * is in progress.
- *
- * Return: 0 on success, error for failure case.
- */
-int hif_set_target_reset(HIF_DEVICE *hif_device)
-{
-	if (!hif_device || !hif_device->func|| !hif_device->func->card) {
-		AR_DEBUG_PRINTF(ATH_DEBUG_ERROR,
-			("AR6000: %s invalid HIF DEVICE \n", __func__));
-		return -ENODEV;
-	}
-	hif_device->ctrl_response_timeout = true;
-
-	return 0;
-}

@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2016 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -52,6 +52,7 @@
 #include <vos_sched.h>
 #include <macInitApi.h>
 #include <wlan_qct_sys.h>
+#include <wlan_btc_svc.h>
 #include <wlan_nlink_common.h>
 #include <wlan_hdd_main.h>
 #include <wlan_hdd_assoc.h>
@@ -73,7 +74,6 @@
 #include <wlan_hdd_ipa.h>
 #endif
 #include <wlan_logging_sock_svc.h>
-#include <wlan_hdd_p2p.h>
 
 /**-----------------------------------------------------------------------------
 *   Preprocessor definitions and constants
@@ -97,18 +97,14 @@
 #elif defined(HIF_SDIO)
 #include "if_ath_sdio.h"
 #endif
+#include <wlan_hdd_p2p.h>
 
 #include "ol_fw.h"
-#include "wlan_hdd_host_offload.h"
-
-/* Time in msec.
- * Time includes 60sec timeout of request_firmware for various binaries
- * (OTP, BDWLAN, QWLAN) and other cleanup and re-init sequence
- */
+/* Time in msec */
 #ifdef CONFIG_SLUB_DEBUG_ON
-#define HDD_SSR_BRING_UP_TIME 250000
+#define HDD_SSR_BRING_UP_TIME 50000
 #else
-#define HDD_SSR_BRING_UP_TIME 240000
+#define HDD_SSR_BRING_UP_TIME 40000
 #endif
 
 static eHalStatus g_full_pwr_status;
@@ -600,13 +596,6 @@ static int __wlan_hdd_ipv6_changed(struct notifier_block *nb,
 	if (adapter->device_mode == WLAN_HDD_INFRA_STATION ||
 	    adapter->device_mode == WLAN_HDD_P2P_CLIENT ||
 	    adapter->device_mode == WLAN_HDD_NDI) {
-
-		if (eConnectionState_Associated ==
-			WLAN_HDD_GET_STATION_CTX_PTR
-			(adapter)->conn_info.connState)
-				sme_dhcp_done_ind(hdd_ctx->hHal,
-				adapter->sessionId);
-
 		if (hdd_ctx->cfg_ini->nEnableSuspend ==
 			WLAN_MAP_SUSPEND_TO_MCAST_BCAST_FILTER &&
 			hdd_ctx->ns_offload_enable)
@@ -1026,7 +1015,7 @@ void hdd_conf_hostoffload(hdd_adapter_t *pAdapter, v_BOOL_t fenable)
                                 ~(HDD_MCASTBCASTFILTER_FILTER_ALL_BROADCAST);
 
                              if (!VOS_IS_STATUS_SUCCESS(vstatus)) {
-                                 hddLog(VOS_TRACE_LEVEL_INFO,
+                                 hddLog(VOS_TRACE_LEVEL_ERROR,
                                     "Failed to enable ARPOFfloadFeature %d",
                                     vstatus);
                              }
@@ -1188,12 +1177,6 @@ static int __wlan_hdd_ipv4_changed(struct notifier_block *nb,
 	      adapter->device_mode == WLAN_HDD_P2P_CLIENT ||
 	      adapter->device_mode == WLAN_HDD_NDI))
 		return NOTIFY_DONE;
-
-	if (eConnectionState_Associated ==
-		WLAN_HDD_GET_STATION_CTX_PTR(
-		adapter)->conn_info.connState)
-			sme_dhcp_done_ind(hdd_ctx->hHal,
-			adapter->sessionId);
 
 	if ((hdd_ctx->cfg_ini->nEnableSuspend !=
 				WLAN_MAP_SUSPEND_TO_MCAST_BCAST_FILTER) ||
@@ -1960,31 +1943,6 @@ static void hdd_ssr_timer_start(int msec)
     ssr_timer_started = true;
 }
 
-/**
- * hdd_svc_fw_shutdown_ind() - API to send FW SHUTDOWN IND to Userspace
- *
- * @dev: Device Pointer
- *
- * Return: None
- */
-void hdd_svc_fw_shutdown_ind(struct device *dev)
-{
-	v_CONTEXT_t g_context;
-	hdd_context_t *hdd_ctx;
-
-	g_context = vos_get_global_context(VOS_MODULE_ID_SYS, NULL);
-
-	if(!g_context)
-		return;
-
-	hdd_ctx = (hdd_context_t *)vos_get_context(VOS_MODULE_ID_HDD,
-						   g_context);
-
-	hdd_ctx ? wlan_hdd_send_svc_nlink_msg(hdd_ctx->radio_index,
-					      WLAN_SVC_FW_SHUTDOWN_IND,
-					      NULL, 0) : 0;
-}
-
 /* the HDD interface to WLAN driver shutdown,
  * the primary shutdown function in SSR
  */
@@ -2025,11 +1983,6 @@ VOS_STATUS hdd_wlan_shutdown(void)
    hddLog(VOS_TRACE_LEVEL_INFO,
            FL("Invoking packetdump deregistration API"));
    wlan_deregister_txrx_packetdump();
-
-   if (VOS_TIMER_STATE_RUNNING ==
-            vos_timer_getCurrentState(&pHddCtx->tdls_source_timer))
-      vos_timer_stop(&pHddCtx->tdls_source_timer);
-
 #ifdef FEATURE_BUS_BANDWIDTH
    if (VOS_TIMER_STATE_RUNNING ==
            vos_timer_getCurrentState(&pHddCtx->bus_bw_timer))
@@ -2039,11 +1992,12 @@ VOS_STATUS hdd_wlan_shutdown(void)
    }
 #endif
 
+   hdd_reset_all_adapters(pHddCtx);
+
 #ifdef IPA_UC_OFFLOAD
    hdd_ipa_uc_ssr_deinit();
 #endif
 
-   hdd_reset_all_adapters(pHddCtx);
    vosStatus = hddDevTmUnregisterNotifyCallback(pHddCtx);
    if ( !VOS_IS_STATUS_SUCCESS( vosStatus ) )
    {
@@ -2080,8 +2034,8 @@ VOS_STATUS hdd_wlan_shutdown(void)
     */
    /* Wait for MC to exit */
    hddLog(VOS_TRACE_LEVEL_FATAL, "%s: Shutting down MC thread",__func__);
-   set_bit(MC_SHUTDOWN_EVENT, &vosSchedContext->mcEventFlag);
-   set_bit(MC_POST_EVENT, &vosSchedContext->mcEventFlag);
+   set_bit(MC_SHUTDOWN_EVENT_MASK, &vosSchedContext->mcEventFlag);
+   set_bit(MC_POST_EVENT_MASK, &vosSchedContext->mcEventFlag);
    wake_up_interruptible(&vosSchedContext->mcWaitQueue);
    wait_for_completion(&vosSchedContext->McShutdown);
 
@@ -2090,8 +2044,8 @@ VOS_STATUS hdd_wlan_shutdown(void)
    hddLog(VOS_TRACE_LEVEL_FATAL, "%s: Shutting down TLshim RX thread",
           __func__);
    unregister_hotcpu_notifier(vosSchedContext->cpuHotPlugNotifier);
-   set_bit(RX_SHUTDOWN_EVENT, &vosSchedContext->tlshimRxEvtFlg);
-   set_bit(RX_POST_EVENT, &vosSchedContext->tlshimRxEvtFlg);
+   set_bit(RX_SHUTDOWN_EVENT_MASK, &vosSchedContext->tlshimRxEvtFlg);
+   set_bit(RX_POST_EVENT_MASK, &vosSchedContext->tlshimRxEvtFlg);
    wake_up_interruptible(&vosSchedContext->tlshimRxWaitQueue);
    hddLog(VOS_TRACE_LEVEL_FATAL, "%s: Waiting for TLshim RX thread to exit",
           __func__);
@@ -2104,7 +2058,6 @@ VOS_STATUS hdd_wlan_shutdown(void)
    vos_free_tlshim_pkt_freeq(vosSchedContext);
 #endif
 
-   tl_shim_flush_cache_rx_queue();
 
    hddLog(VOS_TRACE_LEVEL_FATAL, "%s: Doing WDA STOP", __func__);
    vosStatus = WDA_stop(pVosContext, HAL_STOP_TYPE_RF_KILL);
@@ -2192,7 +2145,6 @@ VOS_STATUS hdd_wlan_re_init(void *hif_sc)
    v_CONTEXT_t      pVosContext = NULL;
    hdd_context_t    *pHddCtx = NULL;
    eHalStatus       halStatus;
-   bool             bug_on_reinit_failure = 0;
 
    hdd_adapter_t *pAdapter;
    int i;
@@ -2216,7 +2168,6 @@ VOS_STATUS hdd_wlan_re_init(void *hif_sc)
       hddLog(VOS_TRACE_LEVEL_FATAL, "%s: HDD context is Null", __func__);
       goto err_re_init;
    }
-   bug_on_reinit_failure = pHddCtx->cfg_ini->bug_on_reinit_failure;
 
    if (!hif_sc) {
       hddLog(VOS_TRACE_LEVEL_FATAL, "%s: hif_sc is NULL", __func__);
@@ -2335,9 +2286,6 @@ VOS_STATUS hdd_wlan_re_init(void *hif_sc)
    /* Pass FW version to HIF layer */
    hif_set_fw_info(hif_sc, pHddCtx->target_fw_version);
 
-   wlan_hdd_send_svc_nlink_msg(pHddCtx->radio_index,
-                               WLAN_SVC_FW_CRASHED_IND, NULL, 0);
-
    /* Restart all adapters */
    hdd_start_all_adapters(pHddCtx);
 
@@ -2380,13 +2328,11 @@ VOS_STATUS hdd_wlan_re_init(void *hif_sc)
    /* Register TM level change handler function to the platform */
    hddDevTmRegisterNotifyCallback(pHddCtx);
 
-   pHddCtx->last_scan_reject_session_id = 0xFF;
-   pHddCtx->last_scan_reject_reason = 0;
-   pHddCtx->last_scan_reject_timestamp = 0;
-
    pHddCtx->hdd_mcastbcast_filter_set = FALSE;
    pHddCtx->btCoexModeSet = false;
    hdd_register_mcast_bcast_filter(pHddCtx);
+
+   wlan_hdd_send_svc_nlink_msg(WLAN_SVC_FW_CRASHED_IND, NULL, 0);
 
    /* Allow the phone to go to sleep */
    hdd_allow_suspend(WIFI_POWER_EVENT_WAKELOCK_DRIVER_REINIT);
@@ -2409,8 +2355,6 @@ VOS_STATUS hdd_wlan_re_init(void *hif_sc)
                                wlan_hdd_cfg80211_extscan_callback);
 #endif /* FEATURE_WLAN_EXTSCAN */
    sme_set_rssi_threshold_breached_cb(pHddCtx->hHal, hdd_rssi_threshold_breached);
-   wlan_hdd_cfg80211_link_layer_stats_init(pHddCtx);
-   sme_bpf_offload_register_callback(pHddCtx->hHal, hdd_get_bpf_offload_cb);
 
 #ifdef WLAN_FEATURE_LPSS
    wlan_hdd_send_all_scan_intf_info(pHddCtx);
@@ -2425,6 +2369,7 @@ err_unregister_pmops:
 #ifdef CONFIG_HAS_EARLYSUSPEND
    hdd_unregister_mcast_bcast_filter(pHddCtx);
 #endif
+   hdd_close_all_adapters(pHddCtx);
 
 err_vosstop:
    vos_stop(pVosContext);
@@ -2432,45 +2377,41 @@ err_vosstop:
 err_vosclose:
    vos_close(pVosContext);
    vos_sched_close(pVosContext);
+   if (pHddCtx)
+   {
+       /* Unregister the Net Device Notifier */
+       unregister_netdevice_notifier(&hdd_netdev_notifier);
+       /* Clean up HDD Nlink Service */
+       send_btc_nlink_msg(WLAN_MODULE_DOWN_IND, 0);
+#ifdef WLAN_KD_READY_NOTIFIER
+       nl_srv_exit(pHddCtx->ptt_pid);
+#else
+       nl_srv_exit();
+#endif /* WLAN_KD_READY_NOTIFIER */
+       /* Free up dynamically allocated members inside HDD Adapter */
+       kfree(pHddCtx->cfg_ini);
+       pHddCtx->cfg_ini= NULL;
+       wlan_hdd_deinit_tx_rx_histogram(pHddCtx);
+       wiphy_unregister(pHddCtx->wiphy);
+       wlan_hdd_cfg80211_deinit(pHddCtx->wiphy);
+       wiphy_free(pHddCtx->wiphy);
+   }
+   vos_preClose(&pVosContext);
 
 #ifdef MEMORY_DEBUG
-   adf_net_buf_debug_exit();
    vos_mem_exit();
 #endif
 
 err_re_init:
-   if (bug_on_reinit_failure)
-      VOS_BUG(0);
-   else {
-      pr_err("SSR fails during reinit hence doing cleanup");
-      /* Stop SSR timer */
-      hdd_ssr_timer_del();
-      if (pHddCtx) {
-         /* Unregister all Net Device Notifiers */
-         wlan_hdd_netdev_notifiers_cleanup(pHddCtx);
-         /* Clean up HDD Nlink Service */
-         nl_srv_exit();
-         hdd_runtime_suspend_deinit(pHddCtx);
-         hdd_close_all_adapters(pHddCtx);
-         /* Free up dynamically allocated members
-          * inside HDD Adapter
-          */
-         vos_mem_free(pHddCtx->cfg_ini);
-         pHddCtx->cfg_ini= NULL;
-         /* Destroy all wakelocks */
-         wlan_hdd_wakelocks_destroy(pHddCtx);
-         wlan_hdd_deinit_tx_rx_histogram(pHddCtx);
-         wiphy_unregister(pHddCtx->wiphy);
-         wiphy_free(pHddCtx->wiphy);
-      }
-   }
-   vos_set_reinit_in_progress(VOS_MODULE_ID_VOSS, FALSE);
-   vos_preClose(&pVosContext);
    /* Allow the phone to go to sleep */
    hdd_allow_suspend(WIFI_POWER_EVENT_WAKELOCK_DRIVER_REINIT);
-   hdd_wlan_wakelock_destroy();
+   vos_set_reinit_in_progress(VOS_MODULE_ID_VOSS, FALSE);
+   VOS_BUG(0);
    return -EPERM;
+
 success:
+   /* Trigger replay of BTC events */
+   send_btc_nlink_msg(WLAN_MODULE_DOWN_IND, 0);
    pHddCtx->isLogpInProgress = FALSE;
    hdd_ssr_timer_del();
    return VOS_STATUS_SUCCESS;

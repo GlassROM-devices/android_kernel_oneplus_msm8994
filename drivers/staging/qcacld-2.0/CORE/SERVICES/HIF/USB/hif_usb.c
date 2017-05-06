@@ -471,7 +471,6 @@ static HIF_DEVICE_USB *usb_hif_create(struct usb_interface *interface)
 		spin_lock_init(&(device->cs_lock));
 		spin_lock_init(&(device->rx_lock));
 		spin_lock_init(&(device->tx_lock));
-		spin_lock_init(&(device->rx_prestart_lock));
 		device->udev = dev;
 		device->interface = interface;
 
@@ -1060,5 +1059,5 @@ void HIFSetBundleMode(HIF_DEVICE *hif_device, bool enabled, int rx_bundle_cnt)
  */
 bool hif_is_80211_fw_wow_required(void)
 {
-	return true;
+	return false;
 }

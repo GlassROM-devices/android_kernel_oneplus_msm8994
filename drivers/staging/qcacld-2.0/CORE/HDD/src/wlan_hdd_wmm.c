@@ -326,7 +326,7 @@ static void hdd_wmm_free_context (hdd_wmm_qos_context_t* pQosContext)
    mutex_unlock(&pAdapter->hddWmmStatus.wmmLock);
 
    // reclaim memory
-   vos_mem_free(pQosContext);
+   kfree(pQosContext);
 
 }
 
@@ -1290,7 +1290,7 @@ static void __hdd_wmm_do_implicit_qos(struct work_struct *work)
                 "%s: AC %d doesn't need service",
                 __func__, acType);
       pQosContext->magic = 0;
-      vos_mem_free(pQosContext);
+      kfree(pQosContext);
       return;
    }
 
@@ -1631,6 +1631,23 @@ VOS_STATUS hdd_wmm_adapter_close ( hdd_adapter_t* pAdapter )
    }
 
    return VOS_STATUS_SUCCESS;
+}
+
+/**============================================================================
+  @brief is_dhcp_packet() - Function which will check OS packet for
+  DHCP packet
+
+  @param skb      : [in]  pointer to OS packet (sk_buff)
+  @return         : VOS_TRUE if the OS packet is DHCP packet
+                  : otherwise VOS_FALSE
+  ===========================================================================*/
+v_BOOL_t is_dhcp_packet(struct sk_buff *skb)
+{
+   if (*((u16*)((u8*)skb->data+34)) == DHCP_SOURCE_PORT ||
+       *((u16*)((u8*)skb->data+34)) == DHCP_DESTINATION_PORT)
+      return VOS_TRUE;
+
+   return VOS_FALSE;
 }
 
 /**============================================================================
@@ -2029,7 +2046,7 @@ VOS_STATUS hdd_wmm_acquire_access( hdd_adapter_t* pAdapter,
 
    pAdapter->hddWmmStatus.wmmAcStatus[acType].wmmAcAccessNeeded = VOS_TRUE;
 
-   pQosContext = vos_mem_malloc(sizeof(*pQosContext));
+   pQosContext = kmalloc(sizeof(*pQosContext), GFP_ATOMIC);
    if (NULL == pQosContext)
    {
       // no memory for QoS context.  Nothing we can do but let data flow
@@ -2482,7 +2499,7 @@ hdd_wlan_wmm_status_e hdd_wmm_addts( hdd_adapter_t* pAdapter,
       return status;
    }
 
-   pQosContext = vos_mem_malloc(sizeof(*pQosContext));
+   pQosContext = kmalloc(sizeof(*pQosContext), GFP_KERNEL);
    if (NULL == pQosContext)
    {
       // no memory for QoS context.  Nothing we can do
@@ -2672,7 +2689,6 @@ hdd_wlan_wmm_status_e hdd_wmm_delts( hdd_adapter_t* pAdapter,
    case SME_QOS_STATUS_RELEASE_FAILURE_RSP:
       // nothing we can do with the existing flow except leave it
       status = HDD_WLAN_WMM_STATUS_RELEASE_FAILED;
-      break;
 
    default:
       // we didn't get back one of the SME_QOS_STATUS_RELEASE_* status codes
@@ -2680,7 +2696,6 @@ hdd_wlan_wmm_status_e hdd_wmm_delts( hdd_adapter_t* pAdapter,
                  "%s: unexpected SME Status=%d", __func__, smeStatus );
       VOS_ASSERT(0);
       status = HDD_WLAN_WMM_STATUS_RELEASE_FAILED;
-      break;
    }
 
 #endif
