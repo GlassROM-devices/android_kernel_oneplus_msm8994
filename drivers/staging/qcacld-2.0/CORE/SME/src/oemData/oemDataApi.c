@@ -208,7 +208,6 @@ eHalStatus oemData_SendMBOemDataReq(tpAniSirGlobal pMac, tOemDataReq *pOemDataRe
 {
     eHalStatus status = eHAL_STATUS_SUCCESS;
     tSirOemDataReq* pMsg;
-    tANI_U16 msgLen;
     tCsrRoamSession *pSession;
 
     smsLog(pMac, LOGW, "OEM_DATA: entering Function %s", __func__);
@@ -225,9 +224,8 @@ eHalStatus oemData_SendMBOemDataReq(tpAniSirGlobal pMac, tOemDataReq *pOemDataRe
         return eHAL_STATUS_FAILURE;
     }
 
-    msgLen = (uint16_t) (sizeof(*pMsg) + pOemDataReq->data_len);
     pMsg->messageType = pal_cpu_to_be16((tANI_U16)eWNI_SME_OEM_DATA_REQ);
-    pMsg->messageLen = pal_cpu_to_be16(msgLen);
+    pMsg->messageLen = pal_cpu_to_be16((uint16_t) sizeof(*pMsg));
     vos_mem_copy(pMsg->selfMacAddr, pSession->selfMacAddr, sizeof(tSirMacAddr) );
     pMsg->data_len = pOemDataReq->data_len;
     /* Incoming buffer ptr saved, set to null to avoid free by caller */
@@ -324,10 +322,10 @@ eHalStatus sme_HandleOemDataRsp(tHalHandle hHal, tANI_U8* pMsg)
                 if (csrLLRemoveEntry(&pMac->sme.smeCmdActiveList,
                                      &pCommand->Link, LL_ACCESS_LOCK))
                 {
-                    vos_mem_set(&(pCommand->u.oemDataCmd),
-                                sizeof(tOemDataCmd), 0);
                     req = &(pCommand->u.oemDataCmd.oemDataReq);
                     vos_mem_free(req->data);
+                    vos_mem_set(&(pCommand->u.oemDataCmd),
+                                sizeof(tOemDataCmd), 0);
                     smeReleaseCommand(pMac, pCommand);
                 }
             }
@@ -342,6 +340,7 @@ eHalStatus sme_HandleOemDataRsp(tHalHandle hHal, tANI_U8* pMsg)
                                   pOemDataRsp->oem_data_rsp);
             /* free this memory only if rsp is from target */
             vos_mem_free(pOemDataRsp->oem_data_rsp);
+            pOemDataRsp->oem_data_rsp = NULL;
         } else {
             smsLog(pMac, LOG1, FL("received internal oem data resp"));
         }

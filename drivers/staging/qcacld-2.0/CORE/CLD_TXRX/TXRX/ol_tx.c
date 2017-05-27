@@ -81,6 +81,12 @@ ol_tx_ll(ol_txrx_vdev_handle vdev, adf_nbuf_t msdu_list)
     v_CONTEXT_t vos_ctx = vos_get_global_context(VOS_MODULE_ID_SYS, NULL);
     void *adf_ctx = vos_get_context(VOS_MODULE_ID_ADF, vos_ctx);
 
+    if (!adf_ctx) {
+        TXRX_PRINT(TXRX_PRINT_LEVEL_ERR,
+                   "%s: adf_ctx is NULL\n", __func__);
+        return msdu_list;
+    }
+
     msdu_info.htt.info.l2_hdr_type = vdev->pdev->htt_pkt_type;
     msdu_info.htt.action.tx_comp_req = 0;
     /*
@@ -111,7 +117,7 @@ ol_tx_ll(ol_txrx_vdev_handle vdev, adf_nbuf_t msdu_list)
          * tx_send call.
          */
         next = adf_nbuf_next(msdu);
-        ol_tx_send(vdev->pdev, tx_desc, msdu);
+        ol_tx_send(vdev->pdev, tx_desc, msdu, vdev->vdev_id);
         msdu = next;
     }
     return NULL; /* all MSDUs were accepted */
@@ -242,7 +248,7 @@ ol_tx_vdev_pause_queue_append(
         DPTRACE(adf_dp_trace(msdu_list,
                 ADF_DP_TRACE_TXRX_QUEUE_PACKET_PTR_RECORD,
                 adf_nbuf_data_addr(msdu_list),
-                sizeof(adf_nbuf_data(msdu_list))));
+                sizeof(adf_nbuf_data(msdu_list)), ADF_TX));
 
         vdev->ll_pause.txq.depth++;
         if (!vdev->ll_pause.txq.head) {
@@ -514,7 +520,7 @@ ol_tx_non_std_ll(
          * downloaded to the target via the HTT tx descriptor.
          */
         htt_tx_desc_display(tx_desc->htt_tx_desc);
-        ol_tx_send(vdev->pdev, tx_desc, msdu);
+        ol_tx_send(vdev->pdev, tx_desc, msdu, vdev->vdev_id);
         msdu = next;
     }
     return NULL; /* all MSDUs were accepted */
@@ -665,8 +671,7 @@ ol_tx_hl_base(
         if (adf_os_atomic_read(&pdev->tx_queue.rsrc_cnt) >
                                         TXRX_HL_TX_DESC_HI_PRIO_RESERVED) {
             tx_desc = ol_tx_desc_hl(pdev, vdev, msdu, &tx_msdu_info);
-        } else if ((adf_nbuf_is_dhcp_pkt(msdu) == A_STATUS_OK)
-                          || (adf_nbuf_is_eapol_pkt(msdu) == A_STATUS_OK)) {
+        } else if (ADF_NBUF_GET_IS_DHCP(msdu) || ADF_NBUF_GET_IS_EAPOL(msdu)) {
             tx_desc = ol_tx_desc_hl(pdev, vdev, msdu, &tx_msdu_info);
             TXRX_PRINT(TXRX_PRINT_LEVEL_ERR,
                 "Provided tx descriptor from reserve pool for DHCP/EAPOL\n");
@@ -847,7 +852,7 @@ ol_tx_pdev_reset_bundle_require(void* pdev_handle)
 
 	TAILQ_FOREACH(vdev, &pdev->vdev_list, vdev_list_elem) {
 		vdev->bundling_reqired = false;
-		TXRX_PRINT(TXRX_PRINT_LEVEL_ERR,
+		TXRX_PRINT(TXRX_PRINT_LEVEL_INFO1,
 			"vdev_id %d bundle_require %d\n",
 			vdev->vdev_id, vdev->bundling_reqired);
     }
@@ -880,7 +885,7 @@ ol_tx_vdev_set_bundle_require(uint8_t vdev_id, unsigned long tx_bytes,
 		vdev->bundling_reqired = false;
 
 	if (old_bundle_required != vdev->bundling_reqired)
-		TXRX_PRINT(TXRX_PRINT_LEVEL_ERR,
+		TXRX_PRINT(TXRX_PRINT_LEVEL_INFO1,
 			"vdev_id %d bundle_require %d tx_bytes %ld time_in_ms %d high_th %d low_th %d\n",
 			vdev->vdev_id, vdev->bundling_reqired, tx_bytes,
 			time_in_ms, high_th, low_th);
@@ -1275,7 +1280,7 @@ adf_nbuf_t ol_tx_reinject(
 
     htt_tx_desc_set_peer_id(tx_desc->htt_tx_desc, peer_id);
 
-    ol_tx_send(vdev->pdev, tx_desc, msdu);
+    ol_tx_send(vdev->pdev, tx_desc, msdu, vdev->vdev_id);
 
     return NULL;
 }

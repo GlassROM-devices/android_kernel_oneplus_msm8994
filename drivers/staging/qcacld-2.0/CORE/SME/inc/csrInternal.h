@@ -387,7 +387,7 @@ typedef struct tagCsrRoamStartBssParams
 
     tSirAddIeParams     addIeParams;
     uint8_t             sap_dot11mc;
-
+    uint16_t            beacon_tx_rate;
 }tCsrRoamStartBssParams;
 
 
@@ -397,7 +397,6 @@ typedef struct tagScanCmd
     csrScanCompleteCallback callback;
     void                    *pContext;
     eCsrScanReason          reason;
-    eCsrRoamState           lastRoamState[CSR_ROAM_SESSION_MAX];
     tCsrRoamProfile         *pToRoamProfile;
     tANI_U32                roamId;    //this is the ID related to the pToRoamProfile
     union
@@ -730,6 +729,8 @@ typedef struct tagCsrConfig
     uint32_t edca_vi_aifs;
     uint32_t edca_bk_aifs;
     uint32_t edca_be_aifs;
+    bool vendor_vht_for_24ghz_sap;
+    struct csr_sta_roam_policy_params sta_roam_policy;
 }tCsrConfig;
 
 typedef struct tagCsrChannelPowerInfo
@@ -775,7 +776,6 @@ typedef struct tagCsrScanStruct
     vos_timer_t hTimerStaApConcTimer;
 #endif
     vos_timer_t hTimerIdleScan;
-    vos_timer_t hTimerResultCfgAging;
     //changes on every scan, it is used as a flag for whether 11d info is found on every scan
     tANI_U8 channelOf11dInfo;
     tANI_U8 scanResultCfgAgingTime;
@@ -851,6 +851,7 @@ typedef struct tagCsrScanStruct
     eCsrBand  scanBandPreference;  //This defines the band perference for scan
     csrScanCompleteCallback callback11dScanDone;
     bool fcc_constraint;
+    bool defer_update_channel_list;
 }tCsrScanStruct;
 
 //Save the connected information. This structure + connectedProfile
@@ -1077,6 +1078,7 @@ typedef struct tagCsrRoamStruct
     tCsrChannel base40MHzChannels;   //center channels for 40MHz channels
     eCsrRoamState curState[CSR_ROAM_SESSION_MAX];
     eCsrRoamSubState curSubState[CSR_ROAM_SESSION_MAX];
+    eCsrRoamState prev_state[CSR_ROAM_SESSION_MAX];
     //This may or may not have the up-to-date valid channel list
     //It is used to get WNI_CFG_VALID_CHANNEL_LIST and not allocate memory all the time
     tSirMacChanNum validChannelList[WNI_CFG_VALID_CHANNEL_LIST_LEN];
@@ -1293,6 +1295,7 @@ eHalStatus csrIsBTAMPAllowed( tpAniSirGlobal pMac, tANI_U32 chnId );
 tANI_BOOLEAN csrIsValidMcConcurrentSession(tpAniSirGlobal pMac, tANI_U32 sessionId,
                                                   tSirBssDescription *pBssDesc);
 tANI_BOOLEAN csrIsConnStateConnectedInfraAp( tpAniSirGlobal pMac, tANI_U32 sessionId );
+bool csr_is_ndi_started(tpAniSirGlobal mac_ctx, uint32_t session_id);
 /*----------------------------------------------------------------------------
   \fn csrRoamRegisterLinkQualityIndCallback
 
@@ -1519,7 +1522,7 @@ tANI_BOOLEAN csrRoamIs11rAssoc(tpAniSirGlobal pMac, tANI_U8 sessionId);
 //Returns whether the current association is a ESE assoc or not
 tANI_BOOLEAN csrRoamIsESEAssoc(tpAniSirGlobal pMac, tANI_U8 sessionId);
 tANI_BOOLEAN csrRoamIsEseIniFeatureEnabled(tpAniSirGlobal pMac);
-tANI_BOOLEAN csrNeighborRoamIsESEAssoc(tpAniSirGlobal pMac, tANI_U8 sessionId);
+tANI_BOOLEAN csrNeighborRoamIsESEAssoc(tpAniSirGlobal pMac, tANI_U32 sessionId);
 #endif
 
 //Remove this code once SLM_Sessionization is supported

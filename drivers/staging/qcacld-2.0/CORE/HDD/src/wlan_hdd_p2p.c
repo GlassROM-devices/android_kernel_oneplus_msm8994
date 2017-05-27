@@ -1567,6 +1567,30 @@ int __wlan_hdd_mgmt_tx(struct wiphy *wiphy, struct net_device *dev,
                if(VOS_TIMER_STATE_RUNNING == vos_timer_getCurrentState(
                    &cfgState->remain_on_chan_ctx->hdd_remain_on_chan_timer))
                {
+                   /* In the latest wpa_supplicant, the wait time for go
+                    * negotiation response is set to 100msec, due to which,
+                    * there could be a possibility that, if the go negotaition
+                    * confirmation frame is not received within 100 msec, ROC
+                    * would be timeout and resulting in connection failures as
+                    * the device will not be on the listen channel anymore to
+                    * receive the confirmation frame.
+                    * Also wpa_supplicant has set the wait to 50msec for go
+                    * negotiation confirmation, invitation response and
+                    * provisional discovery response frames. So increase the
+                    * wait time for all these frames.
+                    */
+                   actionFrmType =
+                          buf[WLAN_HDD_PUBLIC_ACTION_FRAME_TYPE_OFFSET];
+                   if ( actionFrmType == WLAN_HDD_GO_NEG_RESP ||
+                           actionFrmType == WLAN_HDD_PROV_DIS_RESP)
+                       wait = wait + ACTION_FRAME_RSP_WAIT;
+                   else if ( actionFrmType == WLAN_HDD_GO_NEG_CNF ||
+                           actionFrmType == WLAN_HDD_INVITATION_RESP )
+                       wait = wait + ACTION_FRAME_ACK_WAIT;
+
+                   hddLog( LOG1, "%s: Extending the wait time %d for actionFrmType=%d",
+                           __func__,wait,actionFrmType);
+
                    vos_timer_stop(&cfgState->remain_on_chan_ctx->hdd_remain_on_chan_timer);
                    status = vos_timer_start(&cfgState->remain_on_chan_ctx->hdd_remain_on_chan_timer,
                                                         wait);
@@ -1602,17 +1626,18 @@ int __wlan_hdd_mgmt_tx(struct wiphy *wiphy, struct net_device *dev,
          } else
              mutex_unlock(&cfgState->remain_on_chan_ctx_lock);
 
+        mutex_lock(&cfgState->remain_on_chan_ctx_lock);
         if((cfgState->remain_on_chan_ctx != NULL) &&
            (cfgState->current_freq == chan->center_freq)
           )
         {
+            mutex_unlock(&cfgState->remain_on_chan_ctx_lock);
             hddLog(LOG1,"action frame: extending the wait time");
             extendedWait = (tANI_U16)wait;
             goto send_frame;
         }
-
+        mutex_unlock(&cfgState->remain_on_chan_ctx_lock);
         INIT_COMPLETION(pAdapter->offchannel_tx_event);
-
         status = wlan_hdd_request_remain_on_channel(wiphy, dev,
                                         chan,
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3,8,0)) && !defined(WITH_BACKPORTS)
@@ -2015,7 +2040,8 @@ int hdd_setP2pNoa( struct net_device *dev, tANI_U8 *command )
         NoA.single_noa_duration = 0;
         NoA.psSelection = P2P_POWER_SAVE_TYPE_PERIODIC_NOA;
     }
-    NoA.interval = MS_TO_MUS(100);
+    /* NOA interval in TU */
+    NoA.interval = NOA_INTERVAL_IN_TU;
     NoA.count = count;
     NoA.sessionid = pAdapter->sessionId;
 
@@ -2209,20 +2235,11 @@ static tANI_U8 wlan_hdd_get_session_type( enum nl80211_iftype type )
     return sessionType;
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,7,0)) || defined(WITH_BACKPORTS)
 struct wireless_dev* __wlan_hdd_add_virtual_intf(
                   struct wiphy *wiphy, const char *name,
+                  unsigned char name_assign_type,
                   enum nl80211_iftype type,
                   u32 *flags, struct vif_params *params )
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3,6,0))
-struct wireless_dev* __wlan_hdd_add_virtual_intf(
-                  struct wiphy *wiphy, char *name, enum nl80211_iftype type,
-                  u32 *flags, struct vif_params *params )
-#else
-struct net_device* __wlan_hdd_add_virtual_intf(
-                  struct wiphy *wiphy, char *name, enum nl80211_iftype type,
-                  u32 *flags, struct vif_params *params )
-#endif
 {
     hdd_context_t *pHddCtx = (hdd_context_t*) wiphy_priv(wiphy);
     hdd_adapter_t* pAdapter = NULL;
@@ -2284,6 +2301,7 @@ struct net_device* __wlan_hdd_add_virtual_intf(
             pAdapter = hdd_open_adapter( pHddCtx,
                                          wlan_hdd_get_session_type(type),
                                          name, p2pDeviceAddress.bytes,
+                                         name_assign_type,
                                          VOS_TRUE );
             if (WLAN_HDD_RX_HANDLE_RPS == pHddCtx->cfg_ini->rxhandle)
                 hdd_dp_util_send_rps_ind(pAdapter);
@@ -2291,7 +2309,9 @@ struct net_device* __wlan_hdd_add_virtual_intf(
     else
     {
        pAdapter = hdd_open_adapter( pHddCtx, wlan_hdd_get_session_type(type),
-                          name, wlan_hdd_get_intf_addr(pHddCtx), VOS_TRUE );
+                          name, wlan_hdd_get_intf_addr(pHddCtx),
+                          name_assign_type,
+                          VOS_TRUE);
        if (WLAN_HDD_RX_HANDLE_RPS == pHddCtx->cfg_ini->rxhandle)
            hdd_dp_util_send_rps_ind(pAdapter);
     }
@@ -2309,16 +2329,45 @@ struct net_device* __wlan_hdd_add_virtual_intf(
 #endif
 }
 
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,7,0)) || defined(WITH_BACKPORTS)
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0))
+/**
+ * wlan_hdd_add_virtual_intf() - Add virtual interface wrapper
+ * @wiphy: wiphy pointer
+ * @name: User-visible name of the interface
+ * @name_assign_type: the name of assign type of the netdev
+ * @nl80211_iftype: (virtual) interface types
+ * @flags: monitor mode configuration flags (not used)
+ * @vif_params: virtual interface parameters (not used)
+ *
+ * Return: the pointer of wireless dev, otherwise NULL.
+ */
+struct wireless_dev *wlan_hdd_add_virtual_intf(struct wiphy *wiphy,
+                                               const char *name,
+                                               unsigned char name_assign_type,
+                                               enum nl80211_iftype type,
+                                               u32 *flags,
+                                               struct vif_params *params)
+{
+    struct wireless_dev *wdev;
+
+    vos_ssr_protect(__func__);
+    wdev = __wlan_hdd_add_virtual_intf(wiphy, name, name_assign_type,
+                                       type, flags, params);
+    vos_ssr_unprotect(__func__);
+    return wdev;
+}
+#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(3,7,0)) || defined(WITH_BACKPORTS)
 struct wireless_dev* wlan_hdd_add_virtual_intf(
                   struct wiphy *wiphy, const char *name,
                   enum nl80211_iftype type,
                   u32 *flags, struct vif_params *params )
 {
     struct wireless_dev* wdev;
+    unsigned char name_assign_type = 0;
 
     vos_ssr_protect(__func__);
-    wdev = __wlan_hdd_add_virtual_intf(wiphy, name, type, flags, params);
+    wdev = __wlan_hdd_add_virtual_intf(wiphy, name, name_assign_type,
+                                       type, flags, params);
     vos_ssr_unprotect(__func__);
     return wdev;
 }
@@ -2328,9 +2377,11 @@ struct wireless_dev* wlan_hdd_add_virtual_intf(
                   u32 *flags, struct vif_params *params )
 {
     struct wireless_dev* wdev;
+    unsigned char name_assign_type = 0;
 
     vos_ssr_protect(__func__);
-    wdev = __wlan_hdd_add_virtual_intf(wiphy, name, type, flags, params);
+    wdev = __wlan_hdd_add_virtual_intf(wiphy, name, name_assign_type,
+                                       type, flags, params);
     vos_ssr_unprotect(__func__);
     return wdev;
 }
@@ -2340,9 +2391,11 @@ struct net_device* wlan_hdd_add_virtual_intf(
                   u32 *flags, struct vif_params *params )
 {
     struct net_device* ndev;
+    unsigned char name_assign_type = 0;
 
     vos_ssr_protect(__func__);
-    ndev = __wlan_hdd_add_virtual_intf(wiphy, name, type, flags, params);
+    ndev = __wlan_hdd_add_virtual_intf(wiphy, name, name_assign_type,
+                                       type, flags, params);
     vos_ssr_unprotect(__func__);
     return ndev;
 }

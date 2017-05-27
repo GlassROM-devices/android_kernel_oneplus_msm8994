@@ -636,6 +636,23 @@ tANI_BOOLEAN csrIsAnySessionInConnectState( tpAniSirGlobal pMac )
     return ( fRc );
 }
 
+/**
+ * csr_is_ndi_started() - function to check if NDI is started
+ * @mac_ctx: handle to mac context
+ * @session_id: session identifier
+ *
+ * returns: true if NDI is started, false otherwise
+ */
+bool csr_is_ndi_started(tpAniSirGlobal mac_ctx, uint32_t session_id)
+{
+	tCsrRoamSession *session = CSR_GET_SESSION(mac_ctx, session_id);
+
+	if (!session)
+		return false;
+
+	return (eCSR_CONNECT_STATE_TYPE_NDI_STARTED == session->connectState);
+}
+
 tANI_S8 csrGetInfraSessionId( tpAniSirGlobal pMac )
 {
     tANI_U8 i;
@@ -1455,7 +1472,7 @@ eHalStatus csrParseBssDescriptionIEs(tHalHandle hHal, tSirBssDescription *pBssDe
 {
     eHalStatus status = eHAL_STATUS_FAILURE;
     tpAniSirGlobal pMac = PMAC_STRUCT( hHal );
-    int ieLen = (int)(pBssDesc->length + sizeof( pBssDesc->length ) - GET_FIELD_OFFSET( tSirBssDescription, ieFields ));
+    int ieLen = (int)GET_IE_LEN_IN_BSS(pBssDesc->length);
 
     if(ieLen > 0 && pIEStruct)
     {
@@ -1677,9 +1694,9 @@ eHalStatus csrGetPhyModeFromBss(tpAniSirGlobal pMac, tSirBssDescription *pBSSDes
         if (pIes->HTCaps.present) {
             phyMode = eCSR_DOT11_MODE_11n;
 #ifdef WLAN_FEATURE_11AC
-            if (IS_BSS_VHT_CAPABLE(pIes->VHTCaps)) {
+        if (IS_BSS_VHT_CAPABLE(pIes->VHTCaps) ||
+                        IS_BSS_VHT_CAPABLE(pIes->vendor2_ie.VHTCaps))
                  phyMode = eCSR_DOT11_MODE_11ac;
-            }
 #endif
         }
 
@@ -2165,16 +2182,6 @@ csrIsconcurrentsessionValid(tpAniSirGlobal pMac,tANI_U32 cursessionId,
                      return eHAL_STATUS_SUCCESS;
 
              case VOS_STA_SAP_MODE:
-#ifndef WLAN_FEATURE_MBSSID
-                     if ((bss_persona == VOS_STA_SAP_MODE) &&
-                         (connect_state !=
-                          eCSR_ASSOC_STATE_TYPE_NOT_CONNECTED)) {
-                         VOS_TRACE(VOS_MODULE_ID_SME, VOS_TRACE_LEVEL_ERROR,
-                                   FL("**SoftAP mode already exists **"));
-                         return eHAL_STATUS_FAILURE;
-                     }
-                     else
-#endif
                      if (((bss_persona == VOS_P2P_GO_MODE) && (connect_state !=
                                 eCSR_ASSOC_STATE_TYPE_NOT_CONNECTED) &&
                                 (0 == automotive_support_enable)) ||

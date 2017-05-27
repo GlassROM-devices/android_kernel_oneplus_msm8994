@@ -40,6 +40,7 @@
 #include <vos_getBin.h>
 #include "epping_main.h"
 #include "adf_trace.h"
+#include "vos_api.h"
 
 #define CE_POLL_TIMEOUT 10 /* ms */
 
@@ -428,7 +429,7 @@ CE_sendlist_send(struct CE_handle *copyeng,
         DPTRACE(adf_dp_trace((adf_nbuf_t)per_transfer_context,
                 ADF_DP_TRACE_CE_PACKET_PTR_RECORD,
                (uint8_t *)&(((adf_nbuf_t)per_transfer_context)->data),
-               sizeof(((adf_nbuf_t)per_transfer_context)->data)));
+               sizeof(((adf_nbuf_t)per_transfer_context)->data), ADF_TX));
     } else {
         /*
          * Probably not worth the additional complexity to support
@@ -513,10 +514,10 @@ CE_send_watermarks_set(struct CE_handle *copyeng,
     struct hif_pci_softc *sc = CE_state->sc;
     A_target_id_t targid = TARGID(sc);
 
-    adf_os_spin_lock_bh(&sc->target_lock);
+    adf_os_spin_lock(&sc->target_lock);
     CE_SRC_RING_LOWMARK_SET(targid, ctrl_addr, low_alert_nentries);
     CE_SRC_RING_HIGHMARK_SET(targid, ctrl_addr, high_alert_nentries);
-    adf_os_spin_unlock_bh(&sc->target_lock);
+    adf_os_spin_unlock(&sc->target_lock);
 }
 
 void
@@ -529,10 +530,10 @@ CE_recv_watermarks_set(struct CE_handle *copyeng,
     struct hif_pci_softc *sc = CE_state->sc;
     A_target_id_t targid = TARGID(sc);
 
-    adf_os_spin_lock_bh(&sc->target_lock);
+    adf_os_spin_lock(&sc->target_lock);
     CE_DEST_RING_LOWMARK_SET(targid, ctrl_addr, low_alert_nentries);
     CE_DEST_RING_HIGHMARK_SET(targid, ctrl_addr, high_alert_nentries);
-    adf_os_spin_unlock_bh(&sc->target_lock);
+    adf_os_spin_unlock(&sc->target_lock);
 }
 
 unsigned int
@@ -545,10 +546,10 @@ CE_send_entries_avail(struct CE_handle *copyeng)
     unsigned int sw_index;
     unsigned int write_index;
 
-    adf_os_spin_lock_bh(&sc->target_lock);
+    adf_os_spin_lock(&sc->target_lock);
     sw_index = src_ring->sw_index;
     write_index = src_ring->write_index;
-    adf_os_spin_unlock_bh(&sc->target_lock);
+    adf_os_spin_unlock(&sc->target_lock);
 
     return CE_RING_DELTA(nentries_mask, write_index, sw_index-1);
 }
@@ -563,10 +564,10 @@ CE_recv_entries_avail(struct CE_handle *copyeng)
     unsigned int sw_index;
     unsigned int write_index;
 
-    adf_os_spin_lock_bh(&sc->target_lock);
+    adf_os_spin_lock(&sc->target_lock);
     sw_index = dest_ring->sw_index;
     write_index = dest_ring->write_index;
-    adf_os_spin_unlock_bh(&sc->target_lock);
+    adf_os_spin_unlock(&sc->target_lock);
 
     return CE_RING_DELTA(nentries_mask, write_index, sw_index-1);
 }
@@ -598,9 +599,9 @@ CE_send_entries_done(struct CE_handle *copyeng)
     struct hif_pci_softc *sc = CE_state->sc;
     unsigned int nentries;
 
-    adf_os_spin_lock_bh(&sc->target_lock);
+    adf_os_spin_lock(&sc->target_lock);
     nentries = CE_send_entries_done_nolock(sc, CE_state);
-    adf_os_spin_unlock_bh(&sc->target_lock);
+    adf_os_spin_unlock(&sc->target_lock);
 
     return nentries;
 }
@@ -632,9 +633,9 @@ CE_recv_entries_done(struct CE_handle *copyeng)
     struct hif_pci_softc *sc = CE_state->sc;
     unsigned int nentries;
 
-    adf_os_spin_lock_bh(&sc->target_lock);
+    adf_os_spin_lock(&sc->target_lock);
     nentries = CE_recv_entries_done_nolock(sc, CE_state);
-    adf_os_spin_unlock_bh(&sc->target_lock);
+    adf_os_spin_unlock(&sc->target_lock);
 
     return nentries;
 }
@@ -762,7 +763,7 @@ CE_revoke_recv_next(struct CE_handle *copyeng,
     }
 
     sc = CE_state->sc;
-    adf_os_spin_lock_bh(&sc->target_lock);
+    adf_os_spin_lock(&sc->target_lock);
     nentries_mask = dest_ring->nentries_mask;
     sw_index = dest_ring->sw_index;
     write_index = dest_ring->write_index;
@@ -790,7 +791,7 @@ CE_revoke_recv_next(struct CE_handle *copyeng,
     } else {
         status = A_ERROR;
     }
-    adf_os_spin_unlock_bh(&sc->target_lock);
+    adf_os_spin_unlock(&sc->target_lock);
 
     return status;
 }
@@ -896,7 +897,7 @@ CE_cancel_send_next(struct CE_handle *copyeng,
     }
 
     sc = CE_state->sc;
-    adf_os_spin_lock_bh(&sc->target_lock);
+    adf_os_spin_lock(&sc->target_lock);
     nentries_mask = src_ring->nentries_mask;
     sw_index = src_ring->sw_index;
     write_index = src_ring->write_index;
@@ -927,7 +928,7 @@ CE_cancel_send_next(struct CE_handle *copyeng,
     } else {
         status = A_ERROR;
     }
-    adf_os_spin_unlock_bh(&sc->target_lock);
+    adf_os_spin_unlock(&sc->target_lock);
 
     return status;
 }
@@ -1026,6 +1027,52 @@ CE_per_engine_servicereap(struct hif_pci_softc *sc, unsigned int CE_id)
 
 #endif /*ATH_11AC_TXCOMPACT*/
 
+/**
+ * ce_is_valid_entries() - check if ce ring delta is valid
+ * @sc: pointer to hif_pci_softc
+ * @ce_state: pointer to CE_state
+ * @ring_delta: delta packets in CE ring
+ *
+ * check if difference between hw index and read index is
+ * with in limit.
+ *
+ * Return: true if ring delta is valid.
+ */
+static inline bool ce_is_valid_entries(struct hif_pci_softc *sc,
+		struct CE_state *ce_state, unsigned int ring_delta)
+{
+	bool status;
+	A_target_id_t targid = TARGID(sc);
+	unsigned int hw_index =
+			CE_DEST_RING_READ_IDX_GET(targid, ce_state->ctrl_addr);
+
+	/* check if difference between hw index and read index is with in
+	* nentries_mask limit.
+	*/
+	if ((ring_delta < ce_state->dest_ring->nentries_mask) &&
+		(hw_index != CE_HW_INDEX_LINK_DOWN)) {
+		adf_os_print("%s: spent more time during rx proceesing for CE%d, allow other CE to process Rx packet.\n",
+				__func__, ce_state->id);
+		status = true;
+	} else if (hw_index  == CE_HW_INDEX_LINK_DOWN) {
+		status = false;
+		adf_os_print("%s: hw index is invalid due to link down \n", __func__);
+	} else {
+		adf_os_print("%s:Potential infinite loop detected during rx processing for CE%d\n",
+			__func__, ce_state->id);
+		VOS_BUG(0);
+		status = false;
+	}
+
+	adf_os_print("nentries_mask:0x%x sw read_idx:0x%x hw read_idx:0x%x ring_delta:0x%x\n",
+		ce_state->dest_ring->nentries_mask,
+		ce_state->dest_ring->sw_index,
+		CE_DEST_RING_READ_IDX_GET(targid, ce_state->ctrl_addr),
+		ring_delta);
+
+	return status;
+}
+
 /*
  * Number of times to check for any pending tx/rx completion on
  * a copy engine, this count should be big enough. Once we hit
@@ -1058,10 +1105,13 @@ CE_per_engine_service(struct hif_pci_softc *sc, unsigned int CE_id)
     unsigned int more_comp_cnt = 0;
     unsigned int more_snd_comp_cnt = 0;
     unsigned int sw_idx, hw_idx;
+    bool is_pkt_pending = 0;
+    unsigned int ring_delta = 0;
+
 
     A_TARGET_ACCESS_BEGIN(targid);
 
-    adf_os_spin_lock_bh(&sc->target_lock);
+    adf_os_spin_lock(&sc->target_lock);
 
     /* Clear force_break flag and re-initialize receive_count to 0 */
     sc->receive_count = 0;
@@ -1073,7 +1123,7 @@ more_completions:
         while (CE_completed_recv_next_nolock(CE_state, &CE_context, &transfer_context,
                     &buf, &nbytes, &id, &flags) == A_OK)
         {
-                adf_os_spin_unlock_bh(&sc->target_lock);
+                adf_os_spin_unlock(&sc->target_lock);
                 CE_state->recv_cb((struct CE_handle *)CE_state, CE_context, transfer_context,
                                     buf, nbytes, id, flags);
 
@@ -1092,7 +1142,7 @@ more_completions:
                     A_TARGET_ACCESS_END(targid);
                     return;
                 }
-                adf_os_spin_lock_bh(&sc->target_lock);
+                adf_os_spin_lock(&sc->target_lock);
         }
     }
 
@@ -1110,10 +1160,10 @@ more_completions:
 
             if(CE_id != CE_HTT_H2T_MSG ||
                     WLAN_IS_EPPING_ENABLED(vos_get_conparam())){
-                adf_os_spin_unlock_bh(&sc->target_lock);
+                adf_os_spin_unlock(&sc->target_lock);
                 CE_state->send_cb((struct CE_handle *)CE_state, CE_context, transfer_context, buf, nbytes, id,
                                   sw_idx, hw_idx);
-                adf_os_spin_lock_bh(&sc->target_lock);
+                adf_os_spin_lock(&sc->target_lock);
             }else{
                 struct HIF_CE_pipe_info *pipe_info = (struct HIF_CE_pipe_info *)CE_context;
 
@@ -1125,10 +1175,10 @@ more_completions:
 #else  /*ATH_11AC_TXCOMPACT*/
         while (CE_completed_send_next_nolock(CE_state, &CE_context, &transfer_context,
                     &buf, &nbytes, &id, &sw_idx, &hw_idx) == A_OK){
-            adf_os_spin_unlock_bh(&sc->target_lock);
+            adf_os_spin_unlock(&sc->target_lock);
             CE_state->send_cb((struct CE_handle *)CE_state, CE_context, transfer_context, buf, nbytes, id,
                               sw_idx, hw_idx);
-            adf_os_spin_lock_bh(&sc->target_lock);
+            adf_os_spin_lock(&sc->target_lock);
         }
 #endif /*ATH_11AC_TXCOMPACT*/
     }
@@ -1139,12 +1189,12 @@ more_watermarks:
         if (CE_int_status & CE_WATERMARK_MASK) {
             if (CE_state->watermark_cb) {
 
-                adf_os_spin_unlock_bh(&sc->target_lock);
+                adf_os_spin_unlock(&sc->target_lock);
                 /* Convert HW IS bits to software flags */
                 flags = (CE_int_status & CE_WATERMARK_MASK) >> CE_WM_SHFT;
 
                 CE_state->watermark_cb((struct CE_handle *)CE_state, CE_state->wm_context, flags);
-                adf_os_spin_lock_bh(&sc->target_lock);
+                adf_os_spin_lock(&sc->target_lock);
             }
         }
     }
@@ -1165,16 +1215,16 @@ more_watermarks:
      * misc interrupts.Go back and check again.Keep checking until
      * we find no more events to process.
      */
-    if (CE_state->recv_cb && CE_recv_entries_done_nolock(sc, CE_state)) {
-        if (WLAN_IS_EPPING_ENABLED(vos_get_conparam()) ||
-            more_comp_cnt++ < CE_TXRX_COMP_CHECK_THRESHOLD) {
-            goto more_completions;
-        } else {
-            adf_os_print("%s:Potential infinite loop detected during Rx processing"
-                         "nentries_mask:0x%x sw read_idx:0x%x hw read_idx:0x%x\n",
-                        __func__, CE_state->dest_ring->nentries_mask,
-                        CE_state->dest_ring->sw_index,
-                        CE_DEST_RING_READ_IDX_GET(targid, CE_state->ctrl_addr));
+    if (CE_state->recv_cb) {
+        ring_delta = CE_recv_entries_done_nolock(sc, CE_state);
+        if(ring_delta) {
+            if (WLAN_IS_EPPING_ENABLED(vos_get_conparam()) ||
+                more_comp_cnt++ < CE_TXRX_COMP_CHECK_THRESHOLD) {
+                goto more_completions;
+            } else {
+                if (ce_is_valid_entries(sc, CE_state, ring_delta))
+                    is_pkt_pending = true;
+            }
         }
     }
 
@@ -1183,7 +1233,7 @@ more_watermarks:
             more_snd_comp_cnt++ < CE_TXRX_COMP_CHECK_THRESHOLD) {
             goto more_completions;
         } else {
-            adf_os_print("%s:Potential infinite loop detected during send completion"
+            adf_os_print("%s:Potential infinite loop detected during send completion "
                          "nentries_mask:0x%x sw read_idx:0x%x hw read_idx:0x%x\n",
                          __func__, CE_state->src_ring->nentries_mask,
                          CE_state->src_ring->sw_index,
@@ -1201,8 +1251,11 @@ more_watermarks:
         }
     }
 
-    adf_os_spin_unlock_bh(&sc->target_lock);
-    adf_os_atomic_set(&CE_state->rx_pending, 0);
+    adf_os_spin_unlock(&sc->target_lock);
+    if (is_pkt_pending)
+        adf_os_atomic_set(&CE_state->rx_pending, 1);
+    else
+        adf_os_atomic_set(&CE_state->rx_pending, 0);
     A_TARGET_ACCESS_END(targid);
 }
 
@@ -1346,18 +1399,18 @@ void CE_enable_any_copy_compl_intr_nolock(struct hif_pci_softc *sc)
 void
 CE_disable_any_copy_compl_intr(struct hif_pci_softc *sc)
 {
-	adf_os_spin_lock_bh(&sc->target_lock);
+	adf_os_spin_lock(&sc->target_lock);
 	CE_disable_any_copy_compl_intr_nolock(sc);
-	adf_os_spin_unlock_bh(&sc->target_lock);
+	adf_os_spin_unlock(&sc->target_lock);
 }
 
 /*Re-enable the copy compl interrupt if it has not been disabled before.*/
 void
 CE_enable_any_copy_compl_intr(struct hif_pci_softc *sc)
 {
-	adf_os_spin_lock_bh(&sc->target_lock);
+	adf_os_spin_lock(&sc->target_lock);
 	CE_enable_any_copy_compl_intr_nolock(sc);
-	adf_os_spin_unlock_bh(&sc->target_lock);
+	adf_os_spin_unlock(&sc->target_lock);
 }
 
 void
@@ -1369,11 +1422,11 @@ CE_send_cb_register(struct CE_handle *copyeng,
     struct CE_state *CE_state = (struct CE_state *)copyeng;
     struct hif_pci_softc *sc = CE_state->sc;
 
-    adf_os_spin_lock_bh(&sc->target_lock);
+    adf_os_spin_lock(&sc->target_lock);
     CE_state->send_cb = fn_ptr;
     CE_state->send_context = CE_send_context;
     CE_per_engine_handler_adjust(CE_state, disable_interrupts);
-    adf_os_spin_unlock_bh(&sc->target_lock);
+    adf_os_spin_unlock(&sc->target_lock);
 }
 
 void
@@ -1385,11 +1438,11 @@ CE_recv_cb_register(struct CE_handle *copyeng,
     struct CE_state *CE_state = (struct CE_state *)copyeng;
     struct hif_pci_softc *sc = CE_state->sc;
 
-    adf_os_spin_lock_bh(&sc->target_lock);
+    adf_os_spin_lock(&sc->target_lock);
     CE_state->recv_cb = fn_ptr;
     CE_state->recv_context = CE_recv_context;
     CE_per_engine_handler_adjust(CE_state, disable_interrupts);
-    adf_os_spin_unlock_bh(&sc->target_lock);
+    adf_os_spin_unlock(&sc->target_lock);
 }
 
 void
@@ -1400,14 +1453,14 @@ CE_watermark_cb_register(struct CE_handle *copyeng,
     struct CE_state *CE_state = (struct CE_state *)copyeng;
     struct hif_pci_softc *sc = CE_state->sc;
 
-    adf_os_spin_lock_bh(&sc->target_lock);
+    adf_os_spin_lock(&sc->target_lock);
     CE_state->watermark_cb = fn_ptr;
     CE_state->wm_context = CE_wm_context;
     CE_per_engine_handler_adjust(CE_state, 0);
     if (fn_ptr) {
         CE_state->misc_cbs = 1;
     }
-    adf_os_spin_unlock_bh(&sc->target_lock);
+    adf_os_spin_unlock(&sc->target_lock);
 }
 
 static unsigned int
@@ -1467,12 +1520,12 @@ CE_init(struct hif_pci_softc *sc,
 
     A_ASSERT(CE_id < sc->ce_count);
     ctrl_addr = CE_BASE_ADDRESS(CE_id);
-    adf_os_spin_lock_bh(&sc->target_lock);
+    adf_os_spin_lock(&sc->target_lock);
     CE_state = sc->CE_id_to_state[CE_id];
 
 
     if (!CE_state) {
-        adf_os_spin_unlock_bh(&sc->target_lock);
+        adf_os_spin_unlock(&sc->target_lock);
         CE_state = (struct CE_state *)A_MALLOC(sizeof(*CE_state));
         if (!CE_state) {
             dev_err(&sc->pdev->dev, "ath ERROR: CE_state has no mem\n");
@@ -1480,7 +1533,7 @@ CE_init(struct hif_pci_softc *sc,
         } else
             malloc_CE_state = true;
         A_MEMZERO(CE_state, sizeof(*CE_state));
-        adf_os_spin_lock_bh(&sc->target_lock);
+        adf_os_spin_lock(&sc->target_lock);
         if (!sc->CE_id_to_state[CE_id]) { /* re-check under lock */
             sc->CE_id_to_state[CE_id] = CE_state;
 
@@ -1500,7 +1553,7 @@ CE_init(struct hif_pci_softc *sc,
             CE_state = sc->CE_id_to_state[CE_id];
         }
     }
-    adf_os_spin_unlock_bh(&sc->target_lock);
+    adf_os_spin_unlock(&sc->target_lock);
 
     adf_os_atomic_init(&CE_state->rx_pending);
     if (attr == NULL) {
@@ -1539,9 +1592,9 @@ CE_init(struct hif_pci_softc *sc,
                 dev_err(&sc->pdev->dev, "ath ERROR: src ring has no mem\n");
                 if (malloc_CE_state) {
                     /* allocated CE_state locally */
-                    adf_os_spin_lock_bh(&sc->target_lock);
+                    adf_os_spin_lock(&sc->target_lock);
                     sc->CE_id_to_state[CE_id]= NULL;
-                    adf_os_spin_unlock_bh(&sc->target_lock);
+                    adf_os_spin_unlock(&sc->target_lock);
                     A_FREE(CE_state);
                     malloc_CE_state = false;
                 }
@@ -1642,9 +1695,9 @@ CE_init(struct hif_pci_softc *sc,
                 }
                 if (malloc_CE_state) {
                     /* allocated CE_state locally */
-                    adf_os_spin_lock_bh(&sc->target_lock);
+                    adf_os_spin_lock(&sc->target_lock);
                     sc->CE_id_to_state[CE_id]= NULL;
-                    adf_os_spin_unlock_bh(&sc->target_lock);
+                    adf_os_spin_unlock(&sc->target_lock);
                     A_FREE(CE_state);
                     malloc_CE_state = false;
                 }

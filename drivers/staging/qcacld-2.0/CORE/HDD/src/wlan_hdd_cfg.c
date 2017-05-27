@@ -2781,6 +2781,13 @@ REG_TABLE_ENTRY g_registry_table[] =
                  CFG_ENABLE_VHT_FOR_24GHZ_DEFAULT,
                  CFG_ENABLE_VHT_FOR_24GHZ_MIN,
                  CFG_ENABLE_VHT_FOR_24GHZ_MAX),
+
+   REG_VARIABLE( CFG_ENABLE_VENDOR_VHT_FOR_24GHZ_NAME, WLAN_PARAM_Integer,
+                 hdd_config_t, enable_vendor_vht_for_24ghz_band,
+                 VAR_FLAGS_OPTIONAL,
+                 CFG_ENABLE_VENDOR_VHT_FOR_24GHZ_DEFAULT,
+                 CFG_ENABLE_VENDOR_VHT_FOR_24GHZ_MIN,
+                 CFG_ENABLE_VENDOR_VHT_FOR_24GHZ_MAX),
 #endif
 
 #ifdef WLAN_FEATURE_ROAM_SCAN_OFFLOAD
@@ -2994,11 +3001,18 @@ REG_TABLE_ENTRY g_registry_table[] =
                  CFG_IBSS_ATIM_WIN_SIZE_MAX ),
 
    REG_VARIABLE( CFG_SAP_MAX_NO_PEERS, WLAN_PARAM_Integer,
-                 hdd_config_t, maxNumberOfPeers,
+                 hdd_config_t, max_sap_peers,
                  VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
                  CFG_SAP_MAX_NO_PEERS_DEFAULT,
                  CFG_SAP_MAX_NO_PEERS_MIN,
                  CFG_SAP_MAX_NO_PEERS_MAX),
+
+   REG_VARIABLE( CFG_GO_MAX_NO_PEERS, WLAN_PARAM_Integer,
+                 hdd_config_t, max_go_peers,
+                 VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                 CFG_GO_MAX_NO_PEERS_DEFAULT,
+                 CFG_GO_MAX_NO_PEERS_MIN,
+                 CFG_GO_MAX_NO_PEERS_MAX),
 
    REG_VARIABLE( CFG_IBSS_IS_POWER_SAVE_ALLOWED_NAME , WLAN_PARAM_Integer,
                  hdd_config_t, isIbssPowerSaveAllowed,
@@ -4197,6 +4211,35 @@ REG_TABLE_ENTRY g_registry_table[] =
                 CFG_BTC_WLAN_INTERVAL_PAGE_SAP_MIN,
                 CFG_BTC_WLAN_INTERVAL_PAGE_SAP_MAX),
 
+/* During WLAN Conn */
+   REG_VARIABLE(CFG_BTC_WLAN_CONN_PARAM0, WLAN_PARAM_Integer,
+                hdd_config_t, coex_config_wlan_conn_val0,
+                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                CFG_BTC_WLAN_CONN_PARAM0_DEFAULT,
+                CFG_BTC_WLAN_CONN_PARAM0_MIN,
+                CFG_BTC_WLAN_CONN_PARAM0_MAX),
+
+   REG_VARIABLE(CFG_BTC_WLAN_CONN_PARAM1, WLAN_PARAM_Integer,
+                hdd_config_t, coex_config_wlan_conn_val1,
+                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                CFG_BTC_WLAN_CONN_PARAM1_DEFAULT,
+                CFG_BTC_WLAN_CONN_PARAM1_MIN,
+                CFG_BTC_WLAN_CONN_PARAM1_MAX),
+
+   REG_VARIABLE(CFG_BTC_DYNAMIC_WLAN_BT_COEX, WLAN_PARAM_Integer,
+                hdd_config_t, dynamic_wlan_bt_coex,
+                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                CFG_BTC_DYNAMIC_WLAN_BT_COEX_DEFAULT,
+                CFG_BTC_DYNAMIC_WLAN_BT_COEX_MIN,
+                CFG_BTC_DYNAMIC_WLAN_BT_COEX_MAX),
+
+   REG_VARIABLE(CFG_BTC_ANTENNA_ISOLATION, WLAN_PARAM_Integer,
+                hdd_config_t, antenna_isolation,
+                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                CFG_BTC_ANTENNA_ISOLATION_DEFAULT,
+                CFG_BTC_ANTENNA_ISOLATION_MIN,
+                CFG_BTC_ANTENNA_ISOLATION_MAX),
+
    REG_VARIABLE(CFG_INFORM_BSS_RSSI_RAW_NAME, WLAN_PARAM_Integer,
                 hdd_config_t, inform_bss_rssi_raw,
                 VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
@@ -4569,12 +4612,25 @@ REG_TABLE_ENTRY g_registry_table[] =
                 CFG_EDCA_BE_AIFS_VALUE_MIN,
                 CFG_EDCA_BE_AIFS_VALUE_MAX),
 
-   REG_VARIABLE(CFG_SAP_FORCE_11N_FOR_11AC_NAME, WLAN_PARAM_Integer,
-                hdd_config_t, sap_force_11n_for_11ac,
-                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-                CFG_SAP_FORCE_11N_FOR_11AC_DEFAULT,
-                CFG_SAP_FORCE_11N_FOR_11AC_MIN,
-                CFG_SAP_FORCE_11N_FOR_11AC_MAX),
+   REG_VARIABLE_STRING(CFG_ENABLE_TX_SCHED_WRR_VO, WLAN_PARAM_String,
+                hdd_config_t, tx_sched_wrr_vo,
+                VAR_FLAGS_OPTIONAL,
+                (void *) CFG_ENABLE_TX_SCHED_WRR_VO_DEFAULT),
+
+   REG_VARIABLE_STRING(CFG_ENABLE_TX_SCHED_WRR_VI, WLAN_PARAM_String,
+                hdd_config_t, tx_sched_wrr_vi,
+                VAR_FLAGS_OPTIONAL,
+                (void *) CFG_ENABLE_TX_SCHED_WRR_VI_DEFAULT),
+
+   REG_VARIABLE_STRING(CFG_ENABLE_TX_SCHED_WRR_BE, WLAN_PARAM_String,
+                hdd_config_t, tx_sched_wrr_be,
+                VAR_FLAGS_OPTIONAL,
+                (void *) CFG_ENABLE_TX_SCHED_WRR_BE_DEFAULT),
+
+   REG_VARIABLE_STRING(CFG_ENABLE_TX_SCHED_WRR_BK, WLAN_PARAM_String,
+                hdd_config_t, tx_sched_wrr_bk,
+                VAR_FLAGS_OPTIONAL,
+                (void *) CFG_ENABLE_TX_SCHED_WRR_BK_DEFAULT),
 
    REG_VARIABLE(CFG_TGT_GTX_USR_CFG_NAME, WLAN_PARAM_Integer,
                 hdd_config_t, tgt_gtx_usr_cfg,
@@ -4583,19 +4639,34 @@ REG_TABLE_ENTRY g_registry_table[] =
                 CFG_TGT_GTX_USR_CFG_MIN,
                 CFG_TGT_GTX_USR_CFG_MAX),
 
-   REG_VARIABLE(CFG_CH_AVOID_SAP_RESTART_NAME, WLAN_PARAM_Integer,
-                hdd_config_t, sap_restrt_ch_avoid,
+   REG_VARIABLE(CFG_SAP_INTERNAL_RESTART_NAME, WLAN_PARAM_Integer,
+                hdd_config_t, sap_internal_restart,
                 VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-                CFG_CH_AVOID_SAP_RESTART_DEFAULT,
-                CFG_CH_AVOID_SAP_RESTART_MIN,
-                CFG_CH_AVOID_SAP_RESTART_MAX),
+                CFG_SAP_INTERNAL_RESTART_DEFAULT,
+                CFG_SAP_INTERNAL_RESTART_MIN,
+                CFG_SAP_INTERNAL_RESTART_MAX),
 
-   REG_VARIABLE(CFG_RX_WAKELOCK_TIMEOUT_NAME, WLAN_PARAM_Integer,
-                hdd_config_t, rx_wakelock_timeout,
+   REG_VARIABLE(CFG_BUG_ON_REINIT_FAILURE_NAME, WLAN_PARAM_Integer,
+                hdd_config_t, bug_on_reinit_failure,
+                VAR_FLAGS_OPTIONAL |
+                VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                CFG_BUG_ON_REINIT_FAILURE_DEFAULT,
+                CFG_BUG_ON_REINIT_FAILURE_MIN,
+                CFG_BUG_ON_REINIT_FAILURE_MAX),
+
+   REG_VARIABLE(CFG_SAP_FORCE_11N_FOR_11AC_NAME, WLAN_PARAM_Integer,
+                hdd_config_t, sap_force_11n_for_11ac,
                 VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
-                CFG_RX_WAKELOCK_TIMEOUT_DEFAULT,
-                CFG_RX_WAKELOCK_TIMEOUT_MIN,
-                CFG_RX_WAKELOCK_TIMEOUT_MAX),
+                CFG_SAP_FORCE_11N_FOR_11AC_DEFAULT,
+                CFG_SAP_FORCE_11N_FOR_11AC_MIN,
+                CFG_SAP_FORCE_11N_FOR_11AC_MAX),
+
+   REG_VARIABLE(CFG_SAP_MAX_INACTIVITY_OVERRIDE_NAME, WLAN_PARAM_Integer,
+                hdd_config_t, sap_max_inactivity_override,
+                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                CFG_SAP_MAX_INACTIVITY_OVERRIDE_DEFAULT,
+                CFG_SAP_MAX_INACTIVITY_OVERRIDE_MIN,
+                CFG_SAP_MAX_INACTIVITY_OVERRIDE_MAX),
 
    REG_VARIABLE(CFG_ACTIVE_MODE_OFFLOAD, WLAN_PARAM_Integer,
                 hdd_config_t, active_mode_offload,
@@ -4603,6 +4674,20 @@ REG_TABLE_ENTRY g_registry_table[] =
                 CFG_ACTIVE_MODE_OFFLOAD_DEFAULT,
                 CFG_ACTIVE_MODE_OFFLOAD_MIN,
                 CFG_ACTIVE_MODE_OFFLOAD_MAX),
+
+   REG_VARIABLE(CFG_SIFS_BURST_DURATION_NAME, WLAN_PARAM_Integer,
+                hdd_config_t, sifs_burst_duration,
+                VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+                CFG_SIFS_BURST_DURATION_DEFAULT,
+                CFG_SIFS_BURST_DURATION_MIN,
+                CFG_SIFS_BURST_DURATION_MAX),
+
+  REG_VARIABLE(CFG_BPF_PACKET_FILTER_OFFLOAD, WLAN_PARAM_Integer,
+               struct hdd_config, bpf_packet_filter_enable,
+               VAR_FLAGS_OPTIONAL | VAR_FLAGS_RANGE_CHECK_ASSUME_DEFAULT,
+               CFG_BPF_PACKET_FILTER_OFFLOAD_DEFAULT,
+               CFG_BPF_PACKET_FILTER_OFFLOAD_MIN,
+               CFG_BPF_PACKET_FILTER_OFFLOAD_MAX),
 };
 
 
@@ -5106,6 +5191,9 @@ void print_hdd_cfg(hdd_context_t *pHddCtx)
   VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO_HIGH, "Name = [gEnableLpwrImgTransition] Value = [%u] ",pHddCtx->cfg_ini->enableLpwrImgTransition);
   VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO_HIGH, "Name = [gEnableSSR] Value = [%u] ",pHddCtx->cfg_ini->enableSSR);
   VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO_HIGH, "Name = [gEnableVhtFor24GHzBand] Value = [%u] ",pHddCtx->cfg_ini->enableVhtFor24GHzBand);
+  VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO_HIGH,
+            "Name = [gEnableVendorVhtFor24GHzBand] Value = [%u] ",
+            pHddCtx->cfg_ini->enable_vendor_vht_for_24ghz_band);
 
   VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO_HIGH, "Name = [gFlexConnectPowerFactor] Value = [%u] ", pHddCtx->cfg_ini->flexConnectPowerFactor);
   VOS_TRACE(VOS_MODULE_ID_HDD, VOS_TRACE_LEVEL_INFO_HIGH, "Name = [gEnableIbssHeartBeatOffload] Value = [%u] ", pHddCtx->cfg_ini->enableIbssHeartBeatOffload);
@@ -5412,20 +5500,45 @@ void print_hdd_cfg(hdd_context_t *pHddCtx)
   hddLog(LOG2, "Name = [%s] Value = [%u]",
           CFG_ENABLE_VHT_DYNAMIC_STA_CHAINMASK,
           pHddCtx->cfg_ini->enable_dynamic_sta_chainmask);
-
   hddLog(LOG2, "Name = [%s] Value = [%u]",
-                CFG_SAP_FORCE_11N_FOR_11AC_NAME,
-                pHddCtx->cfg_ini->sap_force_11n_for_11ac);
+          CFG_BUG_ON_REINIT_FAILURE_NAME,
+          pHddCtx->cfg_ini->bug_on_reinit_failure);
+
+  hddLog(LOG2, "Name = [%s] Value = [%s]",
+          CFG_ENABLE_TX_SCHED_WRR_VO,
+          pHddCtx->cfg_ini->tx_sched_wrr_vo);
+  hddLog(LOG2, "Name = [%s] Value = [%s]",
+          CFG_ENABLE_TX_SCHED_WRR_VI,
+          pHddCtx->cfg_ini->tx_sched_wrr_vi);
+  hddLog(LOG2, "Name = [%s] Value = [%s]",
+          CFG_ENABLE_TX_SCHED_WRR_BK,
+          pHddCtx->cfg_ini->tx_sched_wrr_bk);
+  hddLog(LOG2, "Name = [%s] Value = [%s]",
+          CFG_ENABLE_TX_SCHED_WRR_BE,
+          pHddCtx->cfg_ini->tx_sched_wrr_be);
+
   hddLog(LOG2, "Name = [%s] Value = [%u]",
                  CFG_TGT_GTX_USR_CFG_NAME,
                  pHddCtx->cfg_ini->tgt_gtx_usr_cfg);
 
   hddLog(LOG2, "Name = [%s] Value = [%u]",
-                 CFG_CH_AVOID_SAP_RESTART_NAME,
-                 pHddCtx->cfg_ini->sap_restrt_ch_avoid);
+                 CFG_SAP_INTERNAL_RESTART_NAME,
+                 pHddCtx->cfg_ini->sap_internal_restart);
+
+  hddLog(LOG2, "Name = [%s] Value = [%u]",
+                CFG_SAP_FORCE_11N_FOR_11AC_NAME,
+                pHddCtx->cfg_ini->sap_force_11n_for_11ac);
+  hddLog(LOG2, "Name = [%s] Value = [%u]",
+          CFG_SAP_MAX_INACTIVITY_OVERRIDE_NAME,
+          pHddCtx->cfg_ini->sap_max_inactivity_override);
   hddLog(LOG2, "Name = [%s] Value = [%u]",
                  CFG_ACTIVE_MODE_OFFLOAD,
                  pHddCtx->cfg_ini->active_mode_offload);
+
+  hddLog(LOG2, "Name = [%s] Value = [%u]",
+                 CFG_BPF_PACKET_FILTER_OFFLOAD,
+                 pHddCtx->cfg_ini->bpf_packet_filter_enable);
+
   hdd_ndp_print_ini_config(pHddCtx);
 }
 
@@ -6804,7 +6917,7 @@ v_BOOL_t hdd_update_config_dat( hdd_context_t *pHddCtx )
      }
      else
      {
-            val = pConfig->maxNumberOfPeers;
+            val = pHddCtx->max_peers;
 
      }
      if(ccmCfgSetInt(pHddCtx->hHal, WNI_CFG_ASSOC_STA_LIMIT, val,
@@ -6812,6 +6925,20 @@ v_BOOL_t hdd_update_config_dat( hdd_context_t *pHddCtx )
      {
          fStatus = FALSE;
          hddLog(LOGE,"Failure: Could not pass on WNI_CFG_ASSOC_STA_LIMIT configuration info to CCM");
+     }
+
+     if(ccmCfgSetInt(pHddCtx->hHal, WNI_CFG_ASSOC_STA_LIMIT_AP,
+                     pConfig->max_sap_peers, NULL, eANI_BOOLEAN_FALSE)
+        == eHAL_STATUS_FAILURE) {
+         fStatus = FALSE;
+         hddLog(LOGE,"can't pass WNI_CFG_ASSOC_STA_LIMIT_AP to CCM");
+     }
+
+     if(ccmCfgSetInt(pHddCtx->hHal, WNI_CFG_ASSOC_STA_LIMIT_GO,
+                     pConfig->max_go_peers, NULL, eANI_BOOLEAN_FALSE)
+        == eHAL_STATUS_FAILURE) {
+         fStatus = FALSE;
+         hddLog(LOGE,"can't pass WNI_CFG_ASSOC_STA_LIMIT_GO to CCM");
      }
 #endif
    if(ccmCfgSetInt(pHddCtx->hHal, WNI_CFG_ENABLE_LPWR_IMG_TRANSITION,
@@ -7127,6 +7254,8 @@ VOS_STATUS hdd_set_sme_config( hdd_context_t *pHddCtx )
    smeConfig->csrConfig.txBFCsnValue = pConfig->txBFCsnValue;
    smeConfig->csrConfig.enable2x2 = pConfig->enable2x2;
    smeConfig->csrConfig.enableVhtFor24GHz = pConfig->enableVhtFor24GHzBand;
+   smeConfig->csrConfig.vendor_vht_for_24ghz_sap =
+       pConfig->enable_vendor_vht_for_24ghz_band;
    smeConfig->csrConfig.enableMuBformee = pConfig->enableMuBformee;
    smeConfig->csrConfig.enableVhtpAid = pConfig->enableVhtpAid;
    smeConfig->csrConfig.enableVhtGid = pConfig->enableVhtGid;
@@ -7374,6 +7503,10 @@ VOS_STATUS hdd_set_sme_config( hdd_context_t *pHddCtx )
                         pHddCtx->cfg_ini->edca_bk_aifs;
    smeConfig->csrConfig.edca_be_aifs =
                         pHddCtx->cfg_ini->edca_be_aifs;
+   smeConfig->csrConfig.sta_roam_policy_params.dfs_mode =
+       CSR_STA_ROAM_POLICY_DFS_ENABLED;
+   smeConfig->csrConfig.sta_roam_policy_params.skip_unsafe_channels = 0;
+
    halStatus = sme_UpdateConfig( pHddCtx->hHal, smeConfig);
    if ( !HAL_STATUS_SUCCESS( halStatus ) )
    {
@@ -7877,4 +8010,19 @@ void hdd_set_btc_bt_wlan_interval(hdd_context_t *hdd_ctx)
 		if (VOS_STATUS_SUCCESS != status)
 			hddLog(LOGE, "Fail to set coex page sap bt interval parameters");
 	}
+
+	if ((config->coex_config_wlan_conn_val0 != 0) ||
+		(config->coex_config_wlan_conn_val1 != 0)) {
+		status = sme_set_btc_wlan_conn_params(
+					config->coex_config_wlan_conn_val0,
+					config->coex_config_wlan_conn_val1);
+		if (VOS_STATUS_SUCCESS != status)
+			hddLog(LOGE, "Fail to set coex wlan connection parameters");
+	}
+
+	status = sme_set_btc_dynamic_bt_wlan_coex(
+		config->dynamic_wlan_bt_coex, config->antenna_isolation);
+
+	if (VOS_STATUS_SUCCESS != status)
+		hddLog(LOGE, "Fail to set enable bt wlan coex parameters");
 }

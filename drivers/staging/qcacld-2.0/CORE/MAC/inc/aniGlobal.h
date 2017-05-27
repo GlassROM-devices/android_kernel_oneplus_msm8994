@@ -99,6 +99,8 @@ typedef struct sAniSirGlobal *tpAniSirGlobal;
 // New HAL API interface defs.
 #include "logDump.h"
 
+#include "ol_txrx_ctrl_api.h"
+
 //Check if this definition can actually move here from halInternal.h even for Volans. In that case
 //this featurization can be removed.
 #define PMAC_STRUCT( _hHal )  (  (tpAniSirGlobal)_hHal )
@@ -378,9 +380,6 @@ typedef struct sLimTimers
     // CNF_WAIT timer
     TX_TIMER            *gpLimCnfWaitTimer;
 
-    // Send Disassociate frame threshold parameters
-    TX_TIMER            gLimSendDisassocFrameThresholdTimer;
-
     TX_TIMER       gLimAddtsRspTimer;   // max wait for a response
 
     // Update OLBC Cache Timer
@@ -604,6 +603,8 @@ typedef struct sAniSirLim
     /// Variable to keep track of number of currently associated STAs
     tANI_U16  gLimNumOfAniSTAs;      // count of ANI peers
     tANI_U16  gLimAssocStaLimit;
+    uint16_t  glim_assoc_sta_limit_ap;
+    uint16_t  glim_assoc_sta_limit_go;
 
     // Heart-Beat interval value
     tANI_U32   gLimHeartBeatCount;
@@ -852,10 +853,6 @@ typedef struct sAniSirLim
 
     // Place holder for Pre-authentication node list
     struct tLimPreAuthNode *  pLimPreAuthList;
-
-    // Send Disassociate frame threshold parameters
-    tANI_U16            gLimDisassocFrameThreshold;
-    tANI_U16            gLimDisassocFrameCredit;
 
     // Assoc or ReAssoc Response Data/Frame
     void                *gLimAssocResponseData;
@@ -1145,6 +1142,9 @@ typedef struct sMacOpenParameters
     bool force_target_assert_enabled;
     uint16_t pkt_bundle_timer_value;
     uint16_t pkt_bundle_size;
+    bool bpf_packet_filter_enable;
+
+    struct ol_tx_sched_wrr_ac_specs_t ac_specs[OL_TX_NUM_WMM_AC];
 } tMacOpenParameters;
 
 typedef struct sHalMacStartParameters

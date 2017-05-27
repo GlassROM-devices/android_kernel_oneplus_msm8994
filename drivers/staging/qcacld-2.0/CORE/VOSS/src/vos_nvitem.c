@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2012-2016 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2012-2017 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -428,6 +428,7 @@ static CountryInfoTable_t countryInfoTable =
       {REGDOMAIN_ETSI, {'Y', 'T'}}, //MAYOTTE
       {REGDOMAIN_ETSI, {'Z', 'A'}}, //SOUTH AFRICA
       {REGDOMAIN_ETSI, {'Z', 'W'}}, //ZIMBABWE
+      {REGDOMAIN_JAPAN, {'X', 'A'}}, //JAPAN PASSIVE
     }
 };
 
@@ -2141,6 +2142,16 @@ int __wlan_hdd_linux_reg_notifier(struct wiphy *wiphy,
 #endif
     }
 
+    if (pHddCtx->isWiphySuspended == TRUE) {
+        VOS_TRACE( VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_ERROR,
+                  "system/cfg80211 is already suspend");
+#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3,9,0)) || defined(WITH_BACKPORTS)
+        return;
+#else
+        return 0;
+#endif
+    }
+
     sme_GetFreqBand(pHddCtx->hHal, &nBandCapability);
 
     /* first check if this callback is in response to the driver callback */
@@ -2263,6 +2274,8 @@ int __wlan_hdd_linux_reg_notifier(struct wiphy *wiphy,
         vos_nv_set_dfs_region(request->dfs_region);
 
         regdmn_set_dfs_region(&pHddCtx->reg);
+
+        hdd_set_dfs_regdomain(pHddCtx,false);
 
     default:
         break;

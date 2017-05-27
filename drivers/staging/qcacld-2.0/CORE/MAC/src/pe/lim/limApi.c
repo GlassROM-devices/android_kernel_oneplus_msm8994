@@ -305,6 +305,19 @@ static void __limInitAssocVars(tpAniSirGlobal pMac)
     }
     pMac->lim.gLimAssocStaLimit = val;
     pMac->lim.gLimIbssStaLimit = val;
+    if(wlan_cfgGetInt(pMac, WNI_CFG_ASSOC_STA_LIMIT_AP, &val) != eSIR_SUCCESS)
+        limLog( pMac, LOGP, FL( "cfg get assoc sta of AP limit failed" ));
+
+    pMac->lim.glim_assoc_sta_limit_ap = val;
+
+    if(wlan_cfgGetInt(pMac, WNI_CFG_ASSOC_STA_LIMIT_GO, &val) != eSIR_SUCCESS)
+        limLog( pMac, LOGP, FL( "cfg get assoc sta of GO limit failed" ));
+
+    pMac->lim.glim_assoc_sta_limit_go = val;
+
+    limLog(pMac, LOG1, FL("max_peer:%d ap_peer:%d go_peer:%d"),
+           pMac->lim.gLimAssocStaLimit, pMac->lim.glim_assoc_sta_limit_ap,
+           pMac->lim.glim_assoc_sta_limit_go);
     // Place holder for current authentication request
     // being handled
     pMac->lim.gpLimMlmAuthReq = NULL;
@@ -321,10 +334,6 @@ static void __limInitAssocVars(tpAniSirGlobal pMac)
 
     // Place holder for Pre-authentication node list
     pMac->lim.pLimPreAuthList = NULL;
-
-    // Send Disassociate frame threshold parameters
-    pMac->lim.gLimDisassocFrameThreshold = LIM_SEND_DISASSOC_FRAME_THRESHOLD;
-    pMac->lim.gLimDisassocFrameCredit = 0;
 
     //One cache for each overlap and associated case.
     vos_mem_set(pMac->lim.protStaOverlapCache,
@@ -1095,9 +1104,6 @@ tANI_U8 limIsTimerAllowedInPowerSaveState(tpAniSirGlobal pMac, tSirMsgQ *pMsg)
             case SIR_LIM_PERIODIC_PROBE_REQ_TIMEOUT:
                 retStatus = FALSE;
                 break;
-            /* May allow following timer messages in sleep mode */
-            case SIR_LIM_HASH_MISS_THRES_TIMEOUT:
-
             /* Safe to allow as of today, this triggers background scan
              * which will not be started if the device is in power-save mode
              * might need to block in the future if we decide to implement
@@ -2292,30 +2298,6 @@ eHalStatus limRoamFillBssDescr(tpAniSirGlobal pMac,
    return eHAL_STATUS_SUCCESS;
 }
 
-/**
- * lim_mon_init_session() - create PE session for monitor mode operation
- * @mac_ptr: mac pointer
- * @msg: Pointer to struct sir_create_session type.
- *
- * Return: NONE
- */
-void lim_mon_init_session(tpAniSirGlobal mac_ptr,
-			  struct sir_create_session *msg)
-{
-	tpPESession psession_entry;
-	uint8_t session_id;
-
-	if((psession_entry = peCreateSession(mac_ptr, msg->bss_id,
-	                                  &session_id, mac_ptr->lim.maxStation,
-	                                  eSIR_MONITOR_MODE)) == NULL) {
-		limLog(mac_ptr, LOGE,
-		       FL("Monitor mode: Session Can not be created"));
-		limPrintMacAddr(mac_ptr, msg->bss_id, LOGE);
-		return;
-	}
-	psession_entry->vhtCapability = 1;
-}
-
 /** -----------------------------------------------------------------
   * brief limRoamOffloadSynchInd() - Handles Roam Synch Indication
   * param pMac - global mac structure
@@ -2410,6 +2392,31 @@ void limRoamOffloadSynchInd(tpAniSirGlobal pMac, tpSirMsgQ pMsg)
 }
 
 #endif
+
+/**
+ * lim_mon_init_session() - create PE session for monitor mode operation
+ * @mac_ptr: mac pointer
+ * @msg: Pointer to struct sir_create_session type.
+ *
+ * Return: NONE
+ */
+void lim_mon_init_session(tpAniSirGlobal mac_ptr,
+			  struct sir_create_session *msg)
+{
+	tpPESession psession_entry;
+	uint8_t session_id;
+
+	if((psession_entry = peCreateSession(mac_ptr, msg->bss_id,
+	                                  &session_id, mac_ptr->lim.maxStation,
+	                                  eSIR_MONITOR_MODE)) == NULL) {
+		limLog(mac_ptr, LOGE,
+		       FL("Monitor mode: Session Can not be created"));
+		limPrintMacAddr(mac_ptr, msg->bss_id, LOGE);
+		return;
+	}
+	psession_entry->vhtCapability = 1;
+}
+
 /** -----------------------------------------------------------------
   \brief limMicFailureInd() - handles mic failure  indication
 
@@ -2434,7 +2441,7 @@ void limMicFailureInd(tpAniSirGlobal pMac, tpSirMsgQ pMsg)
          return;
     }
 
-    pSirSmeMicFailureInd = vos_mem_malloc(sizeof(tSirSmeMicFailureInd));
+    pSirSmeMicFailureInd = vos_mem_malloc(sizeof(*pSirSmeMicFailureInd));
     if (NULL == pSirSmeMicFailureInd)
     {
         // Log error
@@ -2443,41 +2450,8 @@ void limMicFailureInd(tpAniSirGlobal pMac, tpSirMsgQ pMsg)
        return;
     }
 
-    pSirSmeMicFailureInd->messageType = eWNI_SME_MIC_FAILURE_IND;
-    pSirSmeMicFailureInd->length = sizeof(pSirSmeMicFailureInd);
+    *pSirSmeMicFailureInd = *pSirMicFailureInd;
     pSirSmeMicFailureInd->sessionId = psessionEntry->smeSessionId;
-
-    vos_mem_copy(pSirSmeMicFailureInd->bssId,
-                 pSirMicFailureInd->bssId,
-                 sizeof(tSirMacAddr));
-
-    vos_mem_copy(pSirSmeMicFailureInd->info.srcMacAddr,
-                 pSirMicFailureInd->info.srcMacAddr,
-                 sizeof(tSirMacAddr));
-
-    vos_mem_copy(pSirSmeMicFailureInd->info.taMacAddr,
-                 pSirMicFailureInd->info.taMacAddr,
-                 sizeof(tSirMacAddr));
-
-    vos_mem_copy(pSirSmeMicFailureInd->info.dstMacAddr,
-                 pSirMicFailureInd->info.dstMacAddr,
-                 sizeof(tSirMacAddr));
-
-    vos_mem_copy(pSirSmeMicFailureInd->info.rxMacAddr,
-                 pSirMicFailureInd->info.rxMacAddr,
-                 sizeof(tSirMacAddr));
-
-    pSirSmeMicFailureInd->info.multicast =
-                                   pSirMicFailureInd->info.multicast;
-
-    pSirSmeMicFailureInd->info.keyId=
-                                  pSirMicFailureInd->info.keyId;
-
-    pSirSmeMicFailureInd->info.IV1=
-                                  pSirMicFailureInd->info.IV1;
-
-    vos_mem_copy(pSirSmeMicFailureInd->info.TSC,
-                 pSirMicFailureInd->info.TSC,SIR_CIPHER_SEQ_CTR_SIZE);
 
     mmhMsg.type = eWNI_SME_MIC_FAILURE_IND;
     mmhMsg.bodyptr = pSirSmeMicFailureInd;
