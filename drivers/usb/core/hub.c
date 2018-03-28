@@ -43,7 +43,7 @@
 #define USB_VENDOR_GENESYS_LOGIC		0x05e3
 #define HUB_QUIRK_CHECK_PORT_AUTOSUSPEND	0x01
 
-int deny_new_usb = 1;
+int deny_new_usb = 0;
 
 static inline int hub_is_superspeed(struct usb_device *hdev)
 {
