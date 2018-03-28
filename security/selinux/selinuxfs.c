@@ -1897,8 +1897,6 @@ static int __init init_sel_fs(void)
 {
 	int err;
 
-	selinux_enabled = 1;
-
 	if (!selinux_enabled)
 		return 0;
 
