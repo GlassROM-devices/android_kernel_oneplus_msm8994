@@ -380,7 +380,7 @@ CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
 CFLAGS_MODULE   = $(FLAGS_OPTIMIZE) $(GRAPHITE)
 AFLAGS_MODULE   = $(FLAGS_OPTIMIZE) $(GRAPHITE)
 LDFLAGS_MODULE  = --strip-debug
-CFLAGS_KERNEL	= $(FLAGS_OPTIMIZE) $(GRAPHITE) -mcpu=cortex-a57.cortex-a53+crypto+crc -mtune=cortex-a57.cortex-a53 -march=armv8-a+crypto+crc
+CFLAGS_KERNEL	= $(FLAGS_OPTIMIZE) $(GRAPHITE) -mcpu=cortex-a57.cortex-a53+crypto+crc -mtune=cortex-a57.cortex-a53 -march=armv8-a+crypto+crc -mfix-cortex-a53-843419 -mfix-cortex-a53-835769 
 AFLAGS_KERNEL	= $(FLAGS_OPTIMIZE) $(GRAPHITE)
 CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage
 
@@ -437,6 +437,8 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -Wno-switch-bool \
 		   -Wno-multistatement-macros \
 		   -Wno-bool-operation -Wno-nonnull -Wno-switch-unreachable -Wno-format-truncation -Wno-format-overflow -Wno-duplicate-decl-specifier -Wno-memset-elt-size -Wno-int-in-bool-context \
+		   -mstrict-align \
+		   -mfix-cortex-a53-843419 -mfix-cortex-a53-835769 \
 		   $(GEN_OPT_FLAGS) \
 		   $(GRAPHITE) \
 		   $(FLAGS_OPTIMIZE)
