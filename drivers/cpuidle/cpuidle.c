@@ -77,10 +77,22 @@ int cpuidle_enter_state(struct cpuidle_device *dev, struct cpuidle_driver *drv,
 	int entered_state;
 
 	struct cpuidle_state *target_state = &drv->states[index];
+	ktime_t time_start, time_end;
+	s64 diff;
+
+	time_start = ktime_get();
 
 	entered_state = target_state->enter(dev, drv, index);
 
+	time_end = ktime_get();
+
 	local_irq_enable();
+
+	diff = ktime_to_us(ktime_sub(time_end, time_start));
+	if (diff > INT_MAX)
+		diff = INT_MAX;
+
+	dev->last_residency = (int) diff;
 
 	if (entered_state >= 0) {
 		/* Update cpuidle counters */
@@ -169,7 +181,6 @@ void cpuidle_install_idle_handler(void)
 		/* Make sure all changes finished before we switch to new idle */
 		smp_wmb();
 		initialized = 1;
-		kick_all_cpus_sync();
 	}
 }
 
@@ -458,7 +469,7 @@ void cpuidle_unregister(struct cpuidle_driver *drv)
 	int cpu;
 	struct cpuidle_device *device;
 
-	for_each_cpu(cpu, drv->cpumask) {
+	for_each_possible_cpu(cpu) {
 		device = &per_cpu(cpuidle_dev, cpu);
 		cpuidle_unregister_device(device);
 	}
@@ -490,7 +501,7 @@ int cpuidle_register(struct cpuidle_driver *drv,
 		return ret;
 	}
 
-	for_each_cpu(cpu, drv->cpumask) {
+	for_each_possible_cpu(cpu) {
 		device = &per_cpu(cpuidle_dev, cpu);
 		device->cpu = cpu;
 
