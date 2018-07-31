@@ -1,5 +1,5 @@
 /*
- * Copyright (c) 2013-2016 The Linux Foundation. All rights reserved.
+ * Copyright (c) 2013-2018 The Linux Foundation. All rights reserved.
  *
  * Previously licensed under the ISC license by Qualcomm Atheros, Inc.
  *
@@ -498,7 +498,7 @@ static bool wma_is_vdev_in_ap_mode(tp_wma_handle wma, u_int8_t vdev_id)
 {
 	struct wma_txrx_node *intf = wma->interfaces;
 
-	if (vdev_id > wma->max_bssid) {
+	if (vdev_id >= wma->max_bssid) {
 		WMA_LOGP("%s: Invalid vdev_id %hu", __func__, vdev_id);
 		VOS_ASSERT(0);
 		return false;
@@ -524,7 +524,7 @@ static bool wma_is_vdev_in_ibss_mode(tp_wma_handle wma, u_int8_t vdev_id)
 {
 	struct wma_txrx_node *intf = wma->interfaces;
 
-	if (vdev_id > wma->max_bssid) {
+	if (vdev_id >= wma->max_bssid) {
 		WMA_LOGP("%s: Invalid vdev_id %hu", __func__, vdev_id);
 		VOS_ASSERT(0);
 		return false;
@@ -1141,6 +1141,11 @@ static int wma_vdev_start_resp_handler(void *handle, u_int8_t *cmd_param_info,
 		return -EINVAL;
 	}
 
+	if (resp_event->vdev_id >= wma->max_bssid) {
+		WMA_LOGE("Invalid vdev id received from firmware");
+		return -EINVAL;
+	}
+
 	if (wma_is_vdev_in_ap_mode(wma, resp_event->vdev_id)) {
 		adf_os_spin_lock_bh(&wma->dfs_ic->chan_lock);
 		wma->dfs_ic->disable_phy_err_processing = false;
@@ -1295,9 +1300,15 @@ static int wma_vdev_start_rsp_ind(tp_wma_handle wma, u_int8_t *buf)
 		return -EINVAL;
 	}
 
+	if (resp_event->vdev_id >= wma->max_bssid) {
+		WMA_LOGE("%s: received invalid vdev_id %d",
+			__func__, resp_event->vdev_id);
+		return -EINVAL;
+	}
+
 	iface = &wma->interfaces[resp_event->vdev_id];
 
-	if ((resp_event->vdev_id <= wma->max_bssid) &&
+	if ((resp_event->vdev_id < wma->max_bssid) &&
 		(adf_os_atomic_read(
 		&wma->interfaces[resp_event->vdev_id].vdev_restart_params.hidden_ssid_restart_in_progress)) &&
 		(wma_is_vdev_in_ap_mode(wma, resp_event->vdev_id) == true)) {
@@ -1898,7 +1909,7 @@ static void wma_delete_all_ibss_peers(tp_wma_handle wma, A_UINT32 vdev_id)
 	ol_txrx_vdev_handle vdev;
 	ol_txrx_peer_handle peer, temp;
 
-	if (!wma || vdev_id > wma->max_bssid)
+	if (!wma || vdev_id >= wma->max_bssid)
 		return;
 
 	vdev = wma->interfaces[vdev_id].handle;
@@ -1940,7 +1951,7 @@ static void wma_delete_all_ap_remote_peers(tp_wma_handle wma, A_UINT32 vdev_id)
 	ol_txrx_vdev_handle vdev;
 	ol_txrx_peer_handle peer, temp;
 
-	if (!wma || vdev_id > wma->max_bssid)
+	if (!wma || vdev_id >= wma->max_bssid)
 		return;
 
 	vdev = wma->interfaces[vdev_id].handle;
@@ -2138,7 +2149,7 @@ static int wma_vdev_stop_ind(tp_wma_handle wma, u_int8_t *buf)
 
 	resp_event = (wmi_vdev_stopped_event_fixed_param *)buf;
 
-	if ((resp_event->vdev_id <= wma->max_bssid) &&
+	if ((resp_event->vdev_id < wma->max_bssid) &&
 	(adf_os_atomic_read(&wma->interfaces[resp_event->vdev_id].vdev_restart_params.hidden_ssid_restart_in_progress)) &&
 	((wma->interfaces[resp_event->vdev_id].type == WMI_VDEV_TYPE_AP) &&
 	(wma->interfaces[resp_event->vdev_id].sub_type == 0))) {
@@ -2177,7 +2188,7 @@ static int wma_vdev_stop_ind(tp_wma_handle wma, u_int8_t *buf)
 		tpDeleteBssParams params =
 			(tpDeleteBssParams)req_msg->user_data;
 		struct beacon_info *bcn;
-		if (resp_event->vdev_id > wma->max_bssid) {
+		if (resp_event->vdev_id >= wma->max_bssid) {
 			WMA_LOGE("%s: Invalid vdev_id %d", __func__,
 				resp_event->vdev_id);
 			vos_mem_free(params);
@@ -3929,7 +3940,7 @@ static int wma_extscan_hotlist_match_event_handler(void *handle,
 	wmi_extscan_wlan_descriptor    *src_hotlist;
 	uint32_t numap;
 	int j, ap_found = 0;
-
+	uint32_t buf_len;
 	tpAniSirGlobal pMac = (tpAniSirGlobal )vos_get_context(
 					VOS_MODULE_ID_PE, wma->vos_context);
 	if (!pMac) {
@@ -3958,6 +3969,13 @@ static int wma_extscan_hotlist_match_event_handler(void *handle,
 		WMA_LOGE("%s: Total Entries %u greater than max",
 			  __func__, numap);
 		numap = WMA_EXTSCAN_MAX_HOTLIST_ENTRIES;
+	}
+	buf_len = sizeof(wmi_extscan_hotlist_match_event_fixed_param) +
+			WMI_TLV_HDR_SIZE +
+			(numap * sizeof(wmi_extscan_wlan_descriptor));
+	if (buf_len > len) {
+		WMA_LOGE("Invalid buf len from FW %d numap %d", len, numap);
+		return -EINVAL;
 	}
 	dest_hotlist = vos_mem_malloc(sizeof(*dest_hotlist) +
 					sizeof(*dest_ap) * numap);
@@ -3994,6 +4012,11 @@ static int wma_extscan_hotlist_match_event_handler(void *handle,
 		dest_ap->ieLength = src_hotlist-> ie_length;
 		WMI_MAC_ADDR_TO_CHAR_ARRAY(&src_hotlist->bssid,
 						dest_ap->bssid);
+		if (src_hotlist->ssid.ssid_len > SIR_MAC_MAX_SSID_LENGTH) {
+			WMA_LOGE("%s Invalid SSID len %d, truncating",
+				__func__, src_hotlist->ssid.ssid_len);
+			src_hotlist->ssid.ssid_len = SIR_MAC_MAX_SSID_LENGTH;
+		}
 		vos_mem_copy(dest_ap->ssid, src_hotlist->ssid.ssid,
 					src_hotlist->ssid.ssid_len);
 		dest_ap->ssid[src_hotlist->ssid.ssid_len] = '\0';
@@ -4168,6 +4191,13 @@ static int wma_group_num_bss_to_scan_id(const u_int8_t *cmd_param_info,
 			WMI_MAC_ADDR_TO_CHAR_ARRAY(&src_hotlist->bssid,
 						ap->bssid);
 
+			if (src_hotlist->ssid.ssid_len >
+			    SIR_MAC_MAX_SSID_LENGTH) {
+				WMA_LOGD("%s Invalid SSID len %d, truncating",
+					 __func__, src_hotlist->ssid.ssid_len);
+				src_hotlist->ssid.ssid_len =
+						SIR_MAC_MAX_SSID_LENGTH;
+			}
 			vos_mem_copy(ap->ssid, src_hotlist->ssid.ssid,
 					src_hotlist->ssid.ssid_len);
 			ap->ssid[src_hotlist->ssid.ssid_len] = '\0';
@@ -4476,8 +4506,12 @@ static int wma_passpoint_match_event_handler(void *handle,
 			WMA_SVC_MSG_MAX_SIZE) {
 		WMA_LOGE("IE Length: %d or ANQP Length: %d is huge",
 				event->ie_length, event->anqp_length);
-		VOS_ASSERT(0);
 		return -EINVAL;
+	}
+	if (event->ssid.ssid_len > SIR_MAC_MAX_SSID_LENGTH) {
+		WMA_LOGD("%s: Invalid ssid len %d, truncating",
+			__func__, event->ssid.ssid_len);
+		event->ssid.ssid_len = SIR_MAC_MAX_SSID_LENGTH;
 	}
 	dest_match = vos_mem_malloc(sizeof(*dest_match) +
 				event->ie_length + event->anqp_length);
@@ -4568,6 +4602,11 @@ static int wma_unified_link_iface_stats_event_handler(void *handle,
 
 	if (!fixed_param || !link_stats || (link_stats->num_ac && !ac_stats)) {
 		WMA_LOGA("%s: Invalid param_tlvs for Iface Stats", __func__);
+		return -EINVAL;
+	}
+	if (link_stats->num_ac > WIFI_AC_MAX) {
+		WMA_LOGE("%s: Excess data received from firmware num_ac %d",
+			__func__, link_stats->num_ac);
 		return -EINVAL;
 	}
 
@@ -5342,6 +5381,12 @@ static void wma_send_bcn_buf_ll(tp_wma_handle wma,
 		WMA_LOGE("%s: Invalid beacon buffer", __func__);
 		return;
 	}
+	if (WMI_UNIFIED_NOA_ATTR_NUM_DESC_GET(p2p_noa_info) >
+			WMI_P2P_MAX_NOA_DESCRIPTORS) {
+		WMA_LOGE("%s: Too many descriptors %d", __func__,
+			 WMI_UNIFIED_NOA_ATTR_NUM_DESC_GET(p2p_noa_info));
+		return;
+	}
 
 	wmi_buf = wmi_buf_alloc(wma->wmi_handle, sizeof(*cmd));
 	if (!wmi_buf) {
@@ -5968,6 +6013,12 @@ static int wma_p2p_noa_event_handler(void *handle, u_int8_t *event, u_int32_t le
 		descriptors = WMI_UNIFIED_NOA_ATTR_NUM_DESC_GET(p2p_noa_info);
 		noa_ie.num_descriptors = (u_int8_t)descriptors;
 
+		if (noa_ie.num_descriptors > WMA_MAX_NOA_DESCRIPTORS) {
+			WMA_LOGD("Sizing down the no of desc %d to max",
+					noa_ie.num_descriptors);
+			noa_ie.num_descriptors = WMA_MAX_NOA_DESCRIPTORS;
+		}
+
 		WMA_LOGI("%s: index %u, oppPs %u, ctwindow %u, "
 				"num_descriptors = %u", __func__, noa_ie.index,
 				noa_ie.oppPS, noa_ie.ctwindow, noa_ie.num_descriptors);
@@ -6284,7 +6335,8 @@ static int wma_nan_rsp_event_handler(void *handle, u_int8_t *event_buf,
 	alloc_len = sizeof(tSirNanEvent);
 	alloc_len += nan_rsp_event_hdr->data_len;
 	if (nan_rsp_event_hdr->data_len > ((WMA_SVC_MSG_MAX_SIZE -
-	    sizeof(*nan_rsp_event_hdr)) / sizeof(u_int8_t))) {
+	    sizeof(*nan_rsp_event_hdr)) / sizeof(u_int8_t)) ||
+	    nan_rsp_event_hdr->data_len > param_buf->num_data)  {
 		WMA_LOGE("excess data length:%d", nan_rsp_event_hdr->data_len);
 		VOS_ASSERT(0);
 		return -EINVAL;
@@ -9759,7 +9811,7 @@ VOS_STATUS wma_start_scan(tp_wma_handle wma_handle,
 	int len;
 	tSirScanOffloadEvent *scan_event;
 
-	if (scan_req->sessionId > wma_handle->max_bssid) {
+	if (scan_req->sessionId >= wma_handle->max_bssid) {
 		WMA_LOGE("%s: Invalid vdev_id %d, msg_type : 0x%x", __func__,
 			scan_req->sessionId, msg_type);
 		goto error1;
@@ -12730,7 +12782,7 @@ void wma_vdev_resp_timer(void *data)
 		struct beacon_info *bcn;
 		struct wma_txrx_node *iface;
 
-		if (tgt_req->vdev_id > wma->max_bssid) {
+		if (tgt_req->vdev_id >= wma->max_bssid) {
 			WMA_LOGE("%s: Invalid vdev_id %d", __func__,
 				tgt_req->vdev_id);
 			vos_mem_free(params);
@@ -21467,19 +21519,18 @@ static int wma_wow_wakeup_host_event(void *handle, u_int8_t *event,
 
 	wake_info = param_buf->fixed_param;
 
-	if ((wake_info->wake_reason != WOW_REASON_UNSPECIFIED) ||
-	    (wake_info->wake_reason == WOW_REASON_UNSPECIFIED &&
-	     !wmi_get_runtime_pm_inprogress(wma->wmi_handle))) {
+	if (!wmi_get_runtime_pm_inprogress(wma->wmi_handle)) {
 		if (wake_info->vdev_id >= wma->max_bssid) {
 			WMA_LOGE("%s: received invalid vdev_id %d",
 				__func__, wake_info->vdev_id);
 			return -EINVAL;
 		}
-		WMA_LOGA("WOW wakeup host event received (reason: %s(%d)) for vdev %d",
+
+		WMA_LOGA("WOW (%d) %s vdev:%d",
+			wake_info->wake_reason,
 			wma_wow_wake_reason_str(wake_info->wake_reason, wma),
 			wake_info->wake_reason,
 			wake_info->vdev_id);
-		vos_wow_wakeup_host_event(wake_info->wake_reason);
 	}
 
 	vos_event_set(&wma->wma_resume_event);
@@ -21531,6 +21582,12 @@ static int wma_wow_wakeup_host_event(void *handle, u_int8_t *event,
 #ifdef FEATURE_WLAN_SCAN_PNO
 	case WOW_REASON_NLOD:
 		wma_wow_wake_up_stats(wma, NULL, 0, WOW_REASON_NLOD);
+		if (wake_info->vdev_id >= wma->max_bssid) {
+			WMA_LOGE("%s: received invalid vdev_id %d",
+				__func__, wake_info->vdev_id);
+			return -EINVAL;
+		}
+
 		node = &wma->interfaces[wake_info->vdev_id];
 		if (node) {
 			WMA_LOGD("NLO match happened");
@@ -23194,7 +23251,7 @@ static VOS_STATUS wma_wow_enter(tp_wma_handle wma,
 
 	WMA_LOGD("wow enable req received for vdev id: %d", info->sessionId);
 
-	if (info->sessionId > wma->max_bssid) {
+	if (info->sessionId >= wma->max_bssid) {
 		WMA_LOGE("Invalid vdev id (%d)", info->sessionId);
 		vos_mem_free(info);
 		return VOS_STATUS_E_INVAL;
@@ -23221,7 +23278,7 @@ static VOS_STATUS wma_wow_exit(tp_wma_handle wma,
 
 	WMA_LOGD("wow disable req received for vdev id: %d", info->sessionId);
 
-	if (info->sessionId > wma->max_bssid) {
+	if (info->sessionId >= wma->max_bssid) {
 		WMA_LOGE("Invalid vdev id (%d)", info->sessionId);
 		vos_mem_free(info);
 		return VOS_STATUS_E_INVAL;
@@ -23254,7 +23311,7 @@ static VOS_STATUS wma_suspend_req(tp_wma_handle wma, tpSirWlanSuspendParam info)
 
 	wma->no_of_suspend_ind++;
 
-	if (info->sessionId > wma->max_bssid) {
+	if (info->sessionId >= wma->max_bssid) {
 		WMA_LOGE("Invalid vdev id (%d)", info->sessionId);
 		vos_mem_free(info);
 		return VOS_STATUS_E_INVAL;
@@ -31757,6 +31814,11 @@ static int wma_nlo_match_evt_handler(void *handle, u_int8_t *event,
 	nlo_event = param_buf->fixed_param;
 	WMA_LOGD("PNO match event received for vdev %d",
 		 nlo_event->vdev_id);
+	if (nlo_event->vdev_id >= wma->max_bssid) {
+		WMA_LOGE("Invalid vdev id in the NLO event %d",
+				nlo_event->vdev_id);
+		return -EINVAL;
+	}
 
 	node = &wma->interfaces[nlo_event->vdev_id];
 	if (node)
@@ -31905,7 +31967,8 @@ static int wma_mcc_vdev_tx_pause_evt_handler(void *handle, u_int8_t *event,
 	/* FW mapped vdev from ID
 	 * vdev_map = (1 << vdev_id)
 	 * So, host should unmap to ID */
-	for (vdev_id = 0; vdev_map != 0; vdev_id++)
+	for (vdev_id = 0; vdev_map != 0 && vdev_id < wma->max_bssid;
+	     vdev_id++)
 	{
 		if (!(vdev_map & 0x1))
 		{
@@ -35106,6 +35169,14 @@ wma_process_utf_event(WMA_HANDLE handle,
 				 " Seq %d got seq %d",
 				 wma_handle->utf_event_info.expectedSeq,
 				 currentSeq);
+	}
+
+	if ((datalen > MAX_UTF_EVENT_LENGTH) ||
+		(wma_handle->utf_event_info.offset >
+		(MAX_UTF_EVENT_LENGTH - datalen))) {
+		WMA_LOGE("Excess data from firmware, offset:%zu, len:%d",
+			wma_handle->utf_event_info.offset, datalen);
+		return -EINVAL;
 	}
 
 	memcpy(&wma_handle->utf_event_info.data[wma_handle->utf_event_info.offset],
