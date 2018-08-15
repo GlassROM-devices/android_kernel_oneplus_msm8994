@@ -1,4 +1,4 @@
-git clone https://bitbucket.org/anupritaisno1/aarch64-linux-gnu -b linaro
+git clone https://bitbucket.org/anupritaisno1/aarch64-linux-gnu -b linaro --single-branch --depth=1 -4 aarch64-linux-gnu -j$(nproc --all);
 export CROSS_COMPILE="/usr/bin/ccache ./aarch64-linux-gnu/bin/aarch64-linux-gnu-" ;
 export ARCH=arm64;
 export SUBARCH=arm64;
