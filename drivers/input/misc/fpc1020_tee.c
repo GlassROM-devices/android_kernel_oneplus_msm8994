@@ -134,6 +134,7 @@ struct fpc1020_data {
 	struct notifier_block fb_notif;
     #endif
 	struct work_struct pm_work;
+	struct completion irq_sent;
 };
 
 static int fpc1020_request_named_gpio(struct fpc1020_data *fpc1020,
@@ -268,8 +269,11 @@ static ssize_t irq_get(struct device* device,
 			     char* buffer)
 {
 	struct fpc1020_data* fpc1020 = dev_get_drvdata(device);
+	ssize_t count;
 	int irq = gpio_get_value(fpc1020->irq_gpio);
-	return scnprintf(buffer, PAGE_SIZE, "%i\n", irq);
+	count = scnprintf(buffer, PAGE_SIZE, "%i\n", irq);
+	complete(&fpc1020->irq_sent);
+	return count;
 }
 
 
@@ -290,16 +294,24 @@ static DEVICE_ATTR(irq, S_IRUSR | S_IWUSR, irq_get, irq_ack);
 #ifdef VENDOR_EDIT //WayneChang, 2015/12/02, add for key to abs, simulate key in abs through virtual key system
 extern bool virtual_key_enable;
 #endif
+extern bool s1302_is_keypad_stopped(void);
 
 static ssize_t report_home_set(struct device *dev,
 	struct device_attribute *attr, const char *buf, size_t count)
 {
 	struct  fpc1020_data *fpc1020 = dev_get_drvdata(dev);
-        
+
+	bool ignore_keypad;
+
+	if (s1302_is_keypad_stopped() || virtual_key_enable)
+		ignore_keypad = true;
+	else
+		ignore_keypad = false;
+
 	if (!strncmp(buf, "down", strlen("down")))
 	{
 #ifdef VENDOR_EDIT //WayneChang, 2015/12/02, add for key to abs, simulate key in abs through virtual key system
-		if(!virtual_key_enable){
+		if(!ignore_keypad){
 	 		input_report_key(fpc1020->input_dev,
 							KEY_HOME, 1);
 			input_sync(fpc1020->input_dev);
@@ -969,6 +981,9 @@ static irqreturn_t fpc1020_irq_handler(int irq, void *handle)
 
 	sysfs_notify(&fpc1020->dev->kobj, NULL, dev_attr_irq.attr.name);
 
+	reinit_completion(&fpc1020->irq_sent);
+	wait_for_completion_timeout(&fpc1020->irq_sent, msecs_to_jiffies(100));
+
 	if (fpc1020->screen_state)
 		return IRQ_HANDLED;
 
@@ -1136,6 +1151,7 @@ static int fpc1020_probe(struct spi_device *spi)
 
 	irqf = IRQF_TRIGGER_RISING | IRQF_ONESHOT;
 	mutex_init(&fpc1020->lock);
+	init_completion(&fpc1020->irq_sent);
 	rc = devm_request_threaded_irq(dev, gpio_to_irq(fpc1020->irq_gpio),
 			NULL, fpc1020_irq_handler, irqf,
 			dev_name(dev), fpc1020);

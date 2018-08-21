@@ -270,6 +270,8 @@ static void mdss_livedisplay_worker(struct work_struct *work)
 	ret = parse_dsi_cmds(&dsi_cmds, mlc->cmd_buf, len);
 	if (ret == 0) {
 		mdss_dsi_panel_cmds_send(ctrl_pdata, &dsi_cmds, CMD_REQ_COMMIT);
+		kfree(dsi_cmds.buf);
+		kfree(dsi_cmds.cmds);
 	} else {
 		pr_err("%s: error parsing DSI command! ret=%d", __func__, ret);
 	}
@@ -580,6 +582,8 @@ int mdss_livedisplay_parse_dt(struct device_node *np, struct mdss_panel_info *pi
 				&mlc->presets_len[mlc->num_presets]);
 		if (mlc->presets_len[mlc->num_presets] > 0)
 			mlc->num_presets++;
+		else
+			break;
 	}
 
 	if (mlc->num_presets)

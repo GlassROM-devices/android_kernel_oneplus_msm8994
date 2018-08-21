@@ -348,7 +348,7 @@ vendor {
  					509   165
  				>;
  				idle-cost-data = <
- 					0 0 0 0
+ 					56 56 56 17
  				>;
  			};
  			CLUSTER_COST_1: cluster-cost1 {
@@ -368,7 +368,7 @@ vendor {
  					1024   80
  				>;
  				idle-cost-data = <
- 					0 0 0 0
+ 					65 65 65 24
  				>;
  			};
  		};
