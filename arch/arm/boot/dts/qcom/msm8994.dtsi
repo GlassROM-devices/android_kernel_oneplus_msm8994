@@ -37,9 +37,17 @@
 					dev = "/dev/block/platform/soc.0/f9824900.sdhci/by-name/system";
 					type = "ext4";
 					mnt_flags = "ro,barrier=1,discard";
-					fsmgr_flags = "wait";
+					fsmgr_flags = "wait,verify=/dev/block/platform/soc.0/f9824900.sdhci/by-name/reserve2";
 					status = "ok";
 				};
+vendor {
+      compatible = "android,vendor";
+      dev = "/dev/block/platform/soc.0/f9824900.sdhci/by-name/cache";
+      type = "ext4";
+      mnt_flags = "ro,barrier=1,discard";
+					fsmgr_flags = "wait,verify=/dev/block/platform/soc.0/f9824900.sdhci/by-name/reserve2";
+      status = "ok";
+    };
 			};
 		};
 	};
@@ -340,7 +348,7 @@
  					509   165
  				>;
  				idle-cost-data = <
- 					0 0 0 0
+ 					56 56 56 17
  				>;
  			};
  			CLUSTER_COST_1: cluster-cost1 {
@@ -360,7 +368,7 @@
  					1024   80
  				>;
  				idle-cost-data = <
- 					0 0 0 0
+ 					65 65 65 24
  				>;
  			};
  		};
