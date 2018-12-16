@@ -1120,7 +1120,7 @@ static int bfq_merge(struct request_queue *q, struct request **req,
 	struct request *__rq;
 
 	__rq = bfq_find_rq_fmerge(bfqd, bio);
-	if (__rq != NULL && elv_rq_merge_ok(__rq, bio)) {
+	if (__rq != NULL && elv_bio_merge_ok(__rq, bio)) {
 		*req = __rq;
 		return ELEVATOR_FRONT_MERGE;
 	}
@@ -1584,8 +1584,8 @@ static inline void bfq_bfqq_increase_failed_cooperations(struct bfq_queue *bfqq)
 	}
 }
 
-static int bfq_allow_merge(struct request_queue *q, struct request *rq,
-			   struct bio *bio)
+static int bfq_allow_bio_merge(struct request_queue *q, struct request *rq,
+				struct bio *bio)
 {
 	struct bfq_data *bfqd = q->elevator->elevator_data;
 	struct bfq_io_cq *bic;
@@ -1644,6 +1644,12 @@ static void __bfq_set_in_service_queue(struct bfq_data *bfqd,
 	}
 
 	bfqd->in_service_queue = bfqq;
+}
+
+static int bfq_allow_rq_merge(struct request_queue *q, struct request *rq,
+			      struct request *next)
+{
+	return RQ_BFQQ(rq) == RQ_BFQQ(next);
 }
 
 /*
@@ -3897,6 +3903,18 @@ static int bfq_init_queue(struct request_queue *q, struct elevator_type *e)
 	return 0;
 }
 
+static void bfq_registered_queue(struct request_queue *q)
+{
+	struct elevator_queue *e = q->elevator;
+	struct bfq_data *bfqd = e->elevator_data;
+
+	/*
+	 * Default to IOPS mode with no idling for SSDs
+	 */
+	if (blk_queue_nonrot(q))
+		bfqd->bfq_slice_idle = 0;
+}
+
 static void bfq_slab_kill(void)
 {
 	if (bfq_pool != NULL)
@@ -4145,7 +4163,8 @@ static struct elevator_type iosched_bfq = {
 		.elevator_merge_fn =		bfq_merge,
 		.elevator_merged_fn =		bfq_merged_request,
 		.elevator_merge_req_fn =	bfq_merged_requests,
-		.elevator_allow_merge_fn =	bfq_allow_merge,
+		.elevator_allow_bio_merge_fn =	bfq_allow_bio_merge,
+		.elevator_allow_rq_merge_fn =	bfq_allow_rq_merge,
 		.elevator_dispatch_fn =		bfq_dispatch_requests,
 		.elevator_add_req_fn =		bfq_insert_request,
 		.elevator_activate_req_fn =	bfq_activate_request,
@@ -4160,6 +4179,7 @@ static struct elevator_type iosched_bfq = {
 		.elevator_may_queue_fn =	bfq_may_queue,
 		.elevator_init_fn =		bfq_init_queue,
 		.elevator_exit_fn =		bfq_exit_queue,
+		.elevator_registered_fn =	bfq_registered_queue,
 	},
 	.icq_size =		sizeof(struct bfq_io_cq),
 	.icq_align =		__alignof__(struct bfq_io_cq),

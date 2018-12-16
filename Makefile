@@ -270,8 +270,8 @@ GRAPHITE = -fgraphite -fgraphite-identity -floop-interchange -ftree-loop-distrib
 	   $(FLAGS_OPTIMIZE)
 HOSTCC       = $(which ccache) gcc
 HOSTCXX      = $(which ccache) g++
-HOSTCFLAGS   = -Wall -Wmissing-prototypes -Wstrict-prototypes -Ofast -fno-inline-functions -fno-ipa-cp-clone -fomit-frame-pointer -std=gnu89 $(GRAPHITE) $(FLAGS_OPTIMIZE)
-HOSTCXXFLAGS = -Ofast -fno-inline-functions -fgcse-las -pipe -fno-ipa-cp-clone $(GRAPHITE) $(FLAGS_OPTIMIZE)
+HOSTCFLAGS   = -Wall -Wmissing-prototypes -Wstrict-prototypes -Ofast -finline-functions -fomit-frame-pointer -std=gnu89 $(GRAPHITE) $(FLAGS_OPTIMIZE)
+HOSTCXXFLAGS = -Ofast -fgcse-las -pipe $(GRAPHITE) $(FLAGS_OPTIMIZE)
 
 # Decide whether to build built-in, modular, or both.
 # Normally, just do built-in.
@@ -380,15 +380,15 @@ CHECKFLAGS     := -D__linux__ -Dlinux -D__STDC__ -Dunix -D__unix__ \
 CFLAGS_MODULE   = $(FLAGS_OPTIMIZE) $(GRAPHITE)
 AFLAGS_MODULE   = $(FLAGS_OPTIMIZE) $(GRAPHITE)
 LDFLAGS_MODULE  = --strip-debug
-CFLAGS_KERNEL	= $(FLAGS_OPTIMIZE) $(GRAPHITE) -mcpu=cortex-a57.cortex-a53+crypto+crc -mtune=cortex-a57.cortex-a53 -march=armv8-a+crypto+crc -mfix-cortex-a53-843419 -mfix-cortex-a53-835769 
+CFLAGS_KERNEL	= $(FLAGS_OPTIMIZE) $(GRAPHITE) -mcpu=cortex-a57.cortex-a53+crypto+crc+fp+simd -mtune=cortex-a57.cortex-a53 -march=armv8-a+crypto+crc+fp+simd -mfix-cortex-a53-843419 -mfix-cortex-a53-835769 
 AFLAGS_KERNEL	= $(FLAGS_OPTIMIZE) $(GRAPHITE)
 CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage
 
 
 # fall back to -march=armv8-a in case the compiler isn't compatible 
 # with -mcpu and -mtune
-ARM_ARCH_OPT := -mcpu=cortex-a57.cortex-a53+crypto+crc -mtune=cortex-a57.cortex-a53 
-GEN_OPT_FLAGS := $(call cc-option,$(ARM_ARCH_OPT),-march=armv8-a+crypto+crc) \
+ARM_ARCH_OPT := -mcpu=cortex-a57.cortex-a53+crypto+crc+fp+simd -mtune=cortex-a57.cortex-a53 
+GEN_OPT_FLAGS := $(call cc-option,$(ARM_ARCH_OPT),-march=armv8-a+crypto+crc+fp+simd) \
  -g0 \
  -DNDEBUG \
  -fomit-frame-pointer \
@@ -397,7 +397,6 @@ GEN_OPT_FLAGS := $(call cc-option,$(ARM_ARCH_OPT),-march=armv8-a+crypto+crc) \
  -fivopts \
  -fsection-anchors \
  -Wno-array-bounds \
- -fno-store-merging \
  -pipe \
  $(GRAPHITE) \
  $(FLAGS_OPTIMIZE)
@@ -425,11 +424,13 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -fno-strict-aliasing -fno-common \
 		   -Werror-implicit-function-declaration \
 		   -Wno-format-security \
-		   -mcpu=cortex-a57.cortex-a53+crypto+crc -mtune=cortex-a57.cortex-a53+crypto+crc  \
-		   -march=armv8-a+crypto+crc \
+		   -mcpu=cortex-a57.cortex-a53+crypto+crc+fp+simd -mtune=cortex-a57.cortex-a53+crypto+crc+fp+simd  \
+		   --param l1-cache-line-size=64 --param l1-cache-size=32 --param l2-cache-size=512 \
+		   -march=armv8-a+crypto+crc+fp+simd \
 		   -no-pie -fno-pic \
-		   -Ofast -fno-inline-functions \
-		   -fgcse-sm -fsched-spec-load \
+		   -Ofast -finline-functions \
+		   -fgcse-sm -fsched-spec-load -fsched-pressure \
+		   -fira-hoist-pressure \
 		   -fsingle-precision-constant \
 		   -fno-delete-null-pointer-checks \
 		   -std=gnu89 -Wno-unused-const-variable -Wno-misleading-indentation \
@@ -672,15 +673,6 @@ KBUILD_CFLAGS	+= $(call cc-disable-warning,maybe-uninitialized,)
 KBUILD_CFLAGS	+= $(call cc-option,--param=allow-store-data-races=0)
 
 include $(srctree)/arch/$(SRCARCH)/Makefile
-ifdef CONFIG_READABLE_ASM
-# Disable optimizations that make assembler listings hard to read.
-# reorder blocks reorders the control in the function
-# ipa clone creates specialized cloned functions
-# partial inlining inlines only parts of functions
-KBUILD_CFLAGS += $(call cc-option,-fno-reorder-blocks,) \
-                 $(call cc-option,-fno-ipa-cp-clone,) \
-                 $(call cc-option,-fno-partial-inlining)
-endif
 
 # Handle stack protector mode.
 ifdef CONFIG_CC_STACKPROTECTOR_REGULAR
@@ -711,8 +703,8 @@ KBUILD_CFLAGS	+= -fomit-frame-pointer
 KBUILD_CFLAGS   += $(call cc-option, -fno-var-tracking-assignments)
 
 ifdef CONFIG_DEBUG_INFO
-KBUILD_CFLAGS	+= -g
-KBUILD_AFLAGS	+= -gdwarf-2
+KBUILD_CFLAGS	+= -g0
+KBUILD_AFLAGS	+= -g0
 endif
 
 ifdef CONFIG_DEBUG_INFO_REDUCED

@@ -15,6 +15,7 @@
 #include <linux/seq_file.h>
 #include <linux/debugfs.h>
 #include <linux/types.h>
+#include <linux/proc_fs.h>
 #include <trace/events/power.h>
 
 #include "power.h"
@@ -988,6 +989,7 @@ static int __init wakeup_sources_debugfs_init(void)
 {
 	wakeup_sources_stats_dentry = debugfs_create_file("wakeup_sources",
 			S_IRUGO, NULL, NULL, &wakeup_sources_stats_fops);
+	proc_create("wakelocks", S_IRUGO, NULL, &wakeup_sources_stats_fops);
 	return 0;
 }
 

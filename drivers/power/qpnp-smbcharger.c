@@ -37,11 +37,6 @@
 #include <linux/of_batterydata.h>
 #include <linux/msm_bcl.h>
 #include <linux/ktime.h>
-#if defined(CONFIG_FB)
-/* yangfangbiao@oneplus.cn,20150519  Add for reset charge current when screen is off */
-#include <linux/notifier.h>
-#include <linux/fb.h>
-#endif/*CONFIG_FB*/
 
 #ifdef VENDOR_EDIT
 #include <linux/proc_fs.h>
@@ -73,7 +68,7 @@ static int fake_authentic = 0;
 #define AUTO_CHARGING_BATT_TEMP_T3                            120
 #define AUTO_CHARGING_BATT_TEMP_T4                            220
 #define AUTO_CHARGING_BATT_TEMP_T5                            450
-#define AUTO_CHARGING_BATT_TEMP_T6                            550
+#define AUTO_CHARGING_BATT_TEMP_T6                            640
 #define AUTO_CHARGING_BATT_REMOVE_TEMP                        -200
 #define AUTO_CHARGING_BATTERY_TEMP_HYST_FROM_HOT_TO_WARM      20
 #define AUTO_CHARGING_BATTERY_TEMP_HYST_FROM_WARM_TO_NORMAL   20
@@ -289,7 +284,6 @@ struct smbchg_chip {
 	int				recharge_irq;
 	int				fastchg_irq;
 	int				safety_timeout_irq;
-	int				power_ok_irq;
 	int				dcin_uv_irq;
 	int				usbin_uv_irq;
 	int				usbin_ov_irq;
@@ -329,7 +323,6 @@ struct smbchg_chip {
 	unsigned long			first_aicl_seconds;
 	int				aicl_irq_count;
 	struct mutex			usb_status_lock;
-	bool oem_lcd_is_on;
 	int lcd_on_iusb;
 #ifdef VENDOR_EDIT
 /*Modify for V2.4 charge standard */
@@ -384,10 +377,6 @@ bool is_power_changed;
 unsigned int aicl_current;
 bool time_out;
 #endif
-#if defined(CONFIG_FB)
-	/* yangfangbiao@oneplus.cn,20150519  Add for reset charge current when screen is off */
-	struct notifier_block fb_notif;
-#endif /*CONFIG_FB*/
 
 #ifdef VENDOR_EDIT
 	bool ship_mode;
@@ -1062,7 +1051,7 @@ static int get_prop_batt_capacity(struct smbchg_chip *chip)
 
 #ifdef  VENDOR_EDIT
 #define MAX_COUNT	500
-#define SOFT_AICL_VOL	4465   //4555
+#define SOFT_AICL_VOL	4370   //4555
 #define SOFT_AICL_DELAY_MS 2000
 
 static int soft_aicl(struct smbchg_chip *chip)
@@ -4229,10 +4218,10 @@ static void handle_usb_removal(struct smbchg_chip *chip)
 		chip->usb_ov_det = false;
 	if (chip->usb_psy) {
 		pr_smb(PR_MISC, "setting usb psy type = %d\n",
-				POWER_SUPPLY_TYPE_UNKNOWN);
+				POWER_SUPPLY_TYPE_USB);
 #ifndef VENDOR_EDIT
 		power_supply_set_supply_type(chip->usb_psy,
-				POWER_SUPPLY_TYPE_UNKNOWN);
+				POWER_SUPPLY_TYPE_USB);
 		pr_smb(PR_MISC, "setting usb psy present = %d\n",
 				chip->usb_present);
 #endif
@@ -4279,7 +4268,7 @@ static bool is_src_detect_high(struct smbchg_chip *chip)
 }
 
 #define HVDCP_NOTIFY_MS		2500
-#define DEFAULT_WALL_CHG_MA	1800
+#define DEFAULT_WALL_CHG_MA	1980
 /* david.liu@oneplus.tw,20151217  Modify the default intput current to 500mA for SDP */
 #ifdef VENDOR_EDIT
 #define DEFAULT_SDP_MA		500
@@ -4500,14 +4489,7 @@ static void increment_aicl_count(struct smbchg_chip *chip)
 				elapsed_seconds, chip->first_aicl_seconds,
 				now_seconds, chip->aicl_irq_count);
 			pr_smb(PR_INTERRUPT, "Disable AICL rerun\n");
-			/*
-			 * Disable AICL rerun since many interrupts were
-			 * triggered in a short time
-			 */
 			chip->very_weak_charger = true;
-			rc = smbchg_hw_aicl_rerun_en(chip, false);
-			if (rc)
-				pr_err("could not enable aicl reruns: %d", rc);
 			bad_charger = true;
 			chip->aicl_irq_count = 0;
 		} else if ((get_prop_charge_type(chip) ==
@@ -5076,21 +5058,6 @@ static irqreturn_t safety_timeout_handler(int irq, void *_chip)
 	if (chip->psy_registered)
 		power_supply_changed(&chip->batt_psy);
 	smbchg_charging_status_change(chip);
-	return IRQ_HANDLED;
-}
-
-/**
- * power_ok_handler() - called when the switcher turns on or turns off
- * @chip: pointer to smbchg_chip
- * @rt_stat: the status bit indicating switcher turning on or off
- */
-static irqreturn_t power_ok_handler(int irq, void *_chip)
-{
-	struct smbchg_chip *chip = _chip;
-	u8 reg = 0;
-
-	smbchg_read(chip, &reg, chip->misc_base + RT_STS, 1);
-	pr_smb(PR_INTERRUPT, "triggered: 0x%02x\n", reg);
 	return IRQ_HANDLED;
 }
 
@@ -6426,8 +6393,6 @@ static int smbchg_request_irqs(struct smbchg_chip *chip)
 			break;
 		case SMBCHG_MISC_SUBTYPE:
 		case SMBCHG_LITE_MISC_SUBTYPE:
-			REQUEST_IRQ(chip, spmi_resource, chip->power_ok_irq,
-				"power-ok", power_ok_handler, flags, rc);
 			REQUEST_IRQ(chip, spmi_resource, chip->chg_hot_irq,
 				"temp-shutdown", chg_hot_handler, flags, rc);
 			REQUEST_IRQ(chip, spmi_resource,
@@ -7170,26 +7135,11 @@ static int handle_batt_temp_little_cold(struct smbchg_chip *chip)
 					queue_delayed_work(system_power_efficient_wq,
 						&chip->soft_aicl_work,
 						msecs_to_jiffies(SOFT_AICL_DELAY_MS));
-
-					if((chip->oem_lcd_is_on==true)&&(chip->aicl_current > chip->lcd_on_iusb))
-						{
-						smbchg_set_usb_current_max(chip, chip->lcd_on_iusb);
-				        chip->usb_target_current_ma=chip->lcd_on_iusb;/* yangfangbiao@oneplus.cn,20150710  Add for usb thermal current limit */
-						smbchg_rerun_aicl(chip);
-						}
 				} else {
-						if((chip->oem_lcd_is_on==true)&&(chip->aicl_current > chip->lcd_on_iusb))
-						{
-						smbchg_set_usb_current_max(chip,chip->lcd_on_iusb);
-						chip->usb_target_current_ma=chip->lcd_on_iusb;/* yangfangbiao@oneplus.cn,20150710  Add for usb thermal current limit */
-						}
-						else
-						{
-						smbchg_set_usb_current_max(chip, chip->aicl_current);
-						chip->usb_target_current_ma=chip->aicl_current;/* yangfangbiao@oneplus.cn,20150710  Add for usb thermal current limit */
-						}
-						smbchg_rerun_aicl(chip);
-						}
+					smbchg_set_usb_current_max(chip, chip->aicl_current);
+					chip->usb_target_current_ma=chip->aicl_current;/* yangfangbiao@oneplus.cn,20150710  Add for usb thermal current limit */
+					smbchg_rerun_aicl(chip);
+				}
 			}
 
 		smbchg_float_voltage_set(chip, chip->temp_more_cool_vbatdel);
@@ -7242,26 +7192,12 @@ static int handle_batt_temp_cool(struct smbchg_chip *chip)
 						queue_delayed_work(system_power_efficient_wq,
 							&chip->soft_aicl_work,
 							msecs_to_jiffies(SOFT_AICL_DELAY_MS));
-						if((chip->oem_lcd_is_on==true)&&(chip->aicl_current > chip->lcd_on_iusb))
-								{
-								smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->lcd_on_iusb));
-								smbchg_rerun_aicl(chip);
-								chip->usb_target_current_ma=chip->lcd_on_iusb;/* yangfangbiao@oneplus.cn,20150710  Add for usb thermal current limit */
-							}
 					} else {
-							if((chip->oem_lcd_is_on==true)&&(chip->aicl_current > chip->lcd_on_iusb))
-								{
-						        smbchg_set_usb_current_max(chip,calc_thermal_limited_current(chip, chip->lcd_on_iusb));
-								chip->usb_target_current_ma=chip->lcd_on_iusb;/* yangfangbiao@oneplus.cn,20150710	Add for usb thermal current limit */
-								}
-							else
-								{
-								smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->aicl_current));
-								chip->usb_target_current_ma=chip->aicl_current;/* yangfangbiao@oneplus.cn,20150710	Add for usb thermal current limit */
-								}
-								smbchg_rerun_aicl(chip);
+						smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->aicl_current));
+						chip->usb_target_current_ma=chip->aicl_current;/* yangfangbiao@oneplus.cn,20150710	Add for usb thermal current limit */
+						smbchg_rerun_aicl(chip);
 					}
-					}
+				}
 
 		if(ret.intval / 1000 == 1500){
 
@@ -7322,27 +7258,12 @@ static int handle_batt_temp_little_cool(struct smbchg_chip *chip)
 							queue_delayed_work(system_power_efficient_wq,
 								&chip->soft_aicl_work,
 								msecs_to_jiffies(SOFT_AICL_DELAY_MS));
-							if((chip->oem_lcd_is_on==true)&&(chip->aicl_current > chip->lcd_on_iusb))
-								{
-								smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->lcd_on_iusb));
-								smbchg_rerun_aicl(chip);
-								chip->usb_target_current_ma=chip->lcd_on_iusb;/* yangfangbiao@oneplus.cn,20150710  Add for usb thermal current limit */
-							}
 						} else {
-
-								if((chip->oem_lcd_is_on==true)&&(chip->aicl_current > chip->lcd_on_iusb))
-								{
-						        smbchg_set_usb_current_max(chip,calc_thermal_limited_current(chip, chip->lcd_on_iusb));
-								chip->usb_target_current_ma=chip->lcd_on_iusb;/* yangfangbiao@oneplus.cn,20150710	Add for usb thermal current limit */
-								}
-							else
-								{
-								smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->aicl_current));
-								chip->usb_target_current_ma=chip->aicl_current;/* yangfangbiao@oneplus.cn,20150710	Add for usb thermal current limit */
-								}
-								smbchg_rerun_aicl(chip);
+							smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->aicl_current));
+							chip->usb_target_current_ma=chip->aicl_current;/* yangfangbiao@oneplus.cn,20150710	Add for usb thermal current limit */
+							smbchg_rerun_aicl(chip);
 						}
-						}
+					}
 
 		if(ret.intval / 1000 == 1500) {
 			smbchg_float_voltage_set(chip, chip->temp_littel_cool_vbatdel);
@@ -7407,19 +7328,9 @@ static int handle_batt_temp_pre_normal(struct smbchg_chip *chip)
 				queue_delayed_work(system_power_efficient_wq,
 					&chip->soft_aicl_work,
 					msecs_to_jiffies(SOFT_AICL_DELAY_MS));
-				if((chip->oem_lcd_is_on==true)&&(chip->aicl_current > chip->lcd_on_iusb)) {
-					smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->lcd_on_iusb));
-					smbchg_rerun_aicl(chip);
-					chip->usb_target_current_ma=chip->lcd_on_iusb;/* yangfangbiao@oneplus.cn,20150710  Add for usb thermal current limit */
-				}
 			} else {
-				if((chip->oem_lcd_is_on==true)&&(chip->aicl_current > chip->lcd_on_iusb)) {
-			        smbchg_set_usb_current_max(chip,calc_thermal_limited_current(chip, chip->lcd_on_iusb));
-					chip->usb_target_current_ma=chip->lcd_on_iusb;/* yangfangbiao@oneplus.cn,20150710	Add for usb thermal current limit */
-				} else {
-					smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->aicl_current));
-					chip->usb_target_current_ma=chip->aicl_current;/* yangfangbiao@oneplus.cn,20150710	Add for usb thermal current limit */
-				}
+				smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->aicl_current));
+				chip->usb_target_current_ma=chip->aicl_current;/* yangfangbiao@oneplus.cn,20150710	Add for usb thermal current limit */
 				smbchg_rerun_aicl(chip);
 			}
 		}
@@ -7480,27 +7391,12 @@ static int handle_batt_temp_normal(struct smbchg_chip *chip)
 							queue_delayed_work(system_power_efficient_wq,
 								&chip->soft_aicl_work,
 								msecs_to_jiffies(SOFT_AICL_DELAY_MS));
-							if((chip->oem_lcd_is_on==true)&&(chip->aicl_current > chip->lcd_on_iusb))
-								{
-								smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->lcd_on_iusb));
-								smbchg_rerun_aicl(chip);
-								chip->usb_target_current_ma=chip->lcd_on_iusb;/* yangfangbiao@oneplus.cn,20150710  Add for usb thermal current limit */
-							}
 						} else {
-
-						if((chip->oem_lcd_is_on==true)&&(chip->aicl_current > chip->lcd_on_iusb))
-								{
-						        smbchg_set_usb_current_max(chip,calc_thermal_limited_current(chip, chip->lcd_on_iusb));
-								chip->usb_target_current_ma=chip->lcd_on_iusb;/* yangfangbiao@oneplus.cn,20150710	Add for usb thermal current limit */
-								}
-							else
-								{
-								smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->aicl_current));
-								chip->usb_target_current_ma=chip->aicl_current;/* yangfangbiao@oneplus.cn,20150710	Add for usb thermal current limit */
-								}
-								smbchg_rerun_aicl(chip);
+							smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->aicl_current));
+							chip->usb_target_current_ma=chip->aicl_current;/* yangfangbiao@oneplus.cn,20150710	Add for usb thermal current limit */
+							smbchg_rerun_aicl(chip);
 						}
-						}
+					}
 
 
     if(ret.intval / 1000 == 1500)
@@ -7560,26 +7456,12 @@ static int handle_batt_temp_warm(struct smbchg_chip *chip)
 							queue_delayed_work(system_power_efficient_wq,
 								&chip->soft_aicl_work,
 								msecs_to_jiffies(SOFT_AICL_DELAY_MS));
-							if((chip->oem_lcd_is_on==true)&&(chip->aicl_current > chip->lcd_on_iusb))
-								{
-								smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->lcd_on_iusb));
-								smbchg_rerun_aicl(chip);
-								chip->usb_target_current_ma=chip->lcd_on_iusb;/* yangfangbiao@oneplus.cn,20150710  Add for usb thermal current limit */
-							}
 						} else {
-								if((chip->oem_lcd_is_on==true)&&(chip->aicl_current > chip->lcd_on_iusb))
-								{
-						        smbchg_set_usb_current_max(chip,calc_thermal_limited_current(chip, chip->lcd_on_iusb));
-								chip->usb_target_current_ma=chip->lcd_on_iusb;/* yangfangbiao@oneplus.cn,20150710	Add for usb thermal current limit */
-								}
-							else
-								{
-								smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->aicl_current));
-								chip->usb_target_current_ma=chip->aicl_current;/* yangfangbiao@oneplus.cn,20150710	Add for usb thermal current limit */
-								}
-								smbchg_rerun_aicl(chip);
+							smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->aicl_current));
+							chip->usb_target_current_ma=chip->aicl_current;/* yangfangbiao@oneplus.cn,20150710	Add for usb thermal current limit */
+							smbchg_rerun_aicl(chip);
 						}
-						}
+					}
 
 
 		if(ret.intval / 1000 == 1500){
@@ -7730,63 +7612,9 @@ static void qpnp_charge_info_init(struct smbchg_chip *chip)
 	chip->temp_warm_current		 =600;  //    Vterm=4.0V		I=0.2c , 45 <= T < 55
 	chip->lcd_on_iusb = 2100;
 	chip->temp_littel_cool_set_current_0_point_25c = false;
-
-	chip->oem_lcd_is_on =false;
 	chip->time_out = false;
 	chip->battery_status=BATTERY_STATUS_GOOD;
 }
-
-#if defined(CONFIG_FB)
-/* yangfangbiao@oneplus.cn,20150519  Add for reset charge current when screen is off */
-static int fb_notifier_callback(struct notifier_block *self,
-				 unsigned long event, void *data)
-{
-	struct fb_event *evdata = data;
-	int *blank;
-	struct smbchg_chip *chip =
-		container_of(self, struct smbchg_chip, fb_notif);
-	//union power_supply_propval ret = {0,};
-	pr_debug(" %s enter\n",__func__);
-
-	 if (evdata && evdata->data && chip) {
-		if (event == FB_EVENT_BLANK) {
-				 blank = evdata->data;
-	     if (*blank == FB_BLANK_UNBLANK) {
-		 chip->oem_lcd_is_on =true ;
-					/* yangfangbiao@oneplus.cn,20150519  Add for auto adapt current by software. */
-					pr_debug(" %s FB_BLANK_UNBLANK\n",__func__);
-					if(chip->aicl_current != 0) {
-						if (chip->aicl_current >= chip->lcd_on_iusb) {
-							/* yangfangbiao@oneplus.cn,20150710  Add for usb thermal current limit */
-							smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->lcd_on_iusb));
-							smbchg_rerun_aicl(chip);
-
-						} else {
-							/* yangfangbiao@oneplus.cn,20150710  Add for usb thermal current limit */
-							smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->aicl_current));
-							smbchg_rerun_aicl(chip);
-						}
-						}
-					}
-
-	else if (*blank == FB_BLANK_POWERDOWN) {
-					/* yangfangbiao@oneplus.cn,20150519  Add for auto adapt current by software. */
-					chip->oem_lcd_is_on =false;
-					pr_debug(" %s FB_BLANK_POWERDOWN\n",__func__);
-					if(chip->aicl_current != 0) {
-						/* yangfangbiao@oneplus.cn,20150710  Add for usb thermal current limit */
-						smbchg_set_usb_current_max(chip, calc_thermal_limited_current(chip, chip->aicl_current));
-						smbchg_rerun_aicl(chip);
-					}
-
-				}
-			 }
-
-	 }
-
-	 return 0;
-}
-#endif /*CONFIG_FB*/
 
 static void update_heartbeat(struct work_struct *work)
 {
@@ -8221,6 +8049,7 @@ static int smbchg_probe(struct spmi_device *spmi)
 
 	power_supply_set_present(chip->usb_psy, chip->usb_present);
 
+	update_usb_status(chip, is_usb_present(chip), false);
 	dump_regs(chip);
 
 #ifdef VENDOR_EDIT
@@ -8251,15 +8080,6 @@ static int smbchg_probe(struct spmi_device *spmi)
 						__func__, rc);
 		}
 #endif
-#if defined(CONFIG_FB)
-		/* yangfangbiao@oneplus.cn,20150519  Add for reset charge current when screen is off */
-		chip->fb_notif.notifier_call = fb_notifier_callback;
-
-		rc = fb_register_client(&chip->fb_notif);
-
-		if (rc)
-			pr_err("Unable to register fb_notifier: %d\n", rc);
-#endif /*CONFIG_FB*/
 
 	create_debugfs_entries(chip);
 
@@ -8301,11 +8121,6 @@ static int smbchg_remove(struct spmi_device *spmi)
 	device_remove_file(chip->dev, &dev_attr_test_temp);
 	device_remove_file(chip->dev, &dev_attr_test_authentic);
 #endif
-#if defined(CONFIG_FB)
-		/* yangfangbiao@oneplus.cn,20150519  Add for reset charge current when screen is off */
-		if (fb_unregister_client(&chip->fb_notif))
-			pr_err("Error occurred while unregistering fb_notifier.\n");
-#endif /*CONFIG_FB*/
 
 	if (chip->dc_psy_type != -EINVAL)
 		power_supply_unregister(&chip->dc_psy);

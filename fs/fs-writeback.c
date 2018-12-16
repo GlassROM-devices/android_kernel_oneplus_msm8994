@@ -69,7 +69,7 @@ static inline struct backing_dev_info *inode_to_bdi(struct inode *inode)
 {
 	struct super_block *sb = inode->i_sb;
 
-	if (strcmp(sb->s_type->name, "bdev") == 0)
+	if (sb_is_blkdev_sb(sb))
 		return inode->i_mapping->backing_dev_info;
 
 	return sb->s_bdi;
@@ -264,11 +264,13 @@ static int move_expired_inodes(struct list_head *delaying_queue,
 		if (work->older_than_this &&
 		    inode_dirtied_after(inode, *work->older_than_this))
 			break;
+		list_move(&inode->i_wb_list, &tmp);
+		moved++;
+		if (sb_is_blkdev_sb(inode->i_sb))
+			continue;
 		if (sb && sb != inode->i_sb)
 			do_sb_sort = 1;
 		sb = inode->i_sb;
-		list_move(&inode->i_wb_list, &tmp);
-		moved++;
 	}
 
 	/* just one sb in list, splice to dispatch_queue and we're done */
@@ -699,6 +701,21 @@ static long writeback_sb_inodes(struct super_block *sb,
 
 		work->nr_pages -= write_chunk - wbc.nr_to_write;
 		wrote += write_chunk - wbc.nr_to_write;
+
+		if (need_resched()) {
+			/*
+			 * We're trying to balance between building up a nice
+			 * long list of IOs to improve our merge rate, and
+			 * getting those IOs out quickly for anyone throttling
+			 * in balance_dirty_pages().  cond_resched() doesn't
+			 * unplug, so get our IOs out the door before we
+			 * give up the CPU.
+			 */
+			blk_flush_plug(current);
+			cond_resched();
+		}
+
+
 		spin_lock(&wb->list_lock);
 		spin_lock(&inode->i_lock);
 		if (!(inode->i_state & I_DIRTY))
@@ -706,7 +723,7 @@ static long writeback_sb_inodes(struct super_block *sb,
 		requeue_inode(inode, wb, &wbc);
 		inode_sync_complete(inode);
 		spin_unlock(&inode->i_lock);
-		cond_resched_lock(&wb->list_lock);
+
 		/*
 		 * bail out to wb_writeback() often enough to check
 		 * background threshold and other termination conditions.
@@ -764,12 +781,15 @@ long writeback_inodes_wb(struct bdi_writeback *wb, long nr_pages,
 		.range_cyclic	= 1,
 		.reason		= reason,
 	};
+	struct blk_plug plug;
 
+	blk_start_plug(&plug);
 	spin_lock(&wb->list_lock);
 	if (list_empty(&wb->b_io))
 		queue_io(wb, &work);
 	__writeback_inodes_wb(wb, &work);
 	spin_unlock(&wb->list_lock);
+	blk_finish_plug(&plug);
 
 	return nr_pages - work.nr_pages;
 }
@@ -820,10 +840,12 @@ static long wb_writeback(struct bdi_writeback *wb,
 	unsigned long oldest_jif;
 	struct inode *inode;
 	long progress;
+	struct blk_plug plug;
 
 	oldest_jif = jiffies;
 	work->older_than_this = &oldest_jif;
 
+	blk_start_plug(&plug);
 	spin_lock(&wb->list_lock);
 	for (;;) {
 		/*
@@ -903,6 +925,7 @@ static long wb_writeback(struct bdi_writeback *wb,
 		}
 	}
 	spin_unlock(&wb->list_lock);
+	blk_finish_plug(&plug);
 
 	return nr_pages - work->nr_pages;
 }
@@ -991,7 +1014,7 @@ static long wb_check_old_data_flush(struct bdi_writeback *wb)
 /*
  * Retrieve work items and do the writeback they describe
  */
-static long wb_do_writeback(struct bdi_writeback *wb, int force_wait)
+static long wb_do_writeback(struct bdi_writeback *wb)
 {
 	struct backing_dev_info *bdi = wb->bdi;
 	struct wb_writeback_work *work;
@@ -999,12 +1022,6 @@ static long wb_do_writeback(struct bdi_writeback *wb, int force_wait)
 
 	set_bit(BDI_writeback_running, &wb->bdi->state);
 	while ((work = get_next_work_item(bdi)) != NULL) {
-		/*
-		 * Override sync mode, in case we must wait for completion
-		 * because this thread is exiting now.
-		 */
-		if (force_wait)
-			work->sync_mode = WB_SYNC_ALL;
 
 		trace_writeback_exec(bdi, work);
 
@@ -1053,7 +1070,7 @@ void bdi_writeback_workfn(struct work_struct *work)
 		 * rescuer as work_list needs to be drained.
 		 */
 		do {
-			pages_written = wb_do_writeback(wb, 0);
+			pages_written = wb_do_writeback(wb);
 			trace_writeback_pages_written(pages_written);
 		} while (!list_empty(&bdi->work_list));
 	} else {
@@ -1082,6 +1099,12 @@ void bdi_writeback_workfn(struct work_struct *work)
 void wakeup_flusher_threads(long nr_pages, enum wb_reason reason)
 {
 	struct backing_dev_info *bdi;
+
+	/*
+	 * If we are expecting writeback progress we must submit plugged IO.
+	 */
+	if (blk_needs_flush_plug(current))
+		blk_schedule_flush_plug(current);
 
 	if (!nr_pages)
 		nr_pages = get_nr_dirty_pages();

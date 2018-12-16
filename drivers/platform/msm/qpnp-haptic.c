@@ -289,6 +289,7 @@ struct qpnp_hap {
 	spinlock_t td_lock;
 	struct work_struct td_work;
 	struct completion completion;
+	struct workqueue_struct *wq;
 	enum qpnp_hap_mode play_mode;
 	enum qpnp_hap_auto_res_mode auto_res_mode;
 	enum qpnp_hap_high_z lra_high_z;
@@ -330,6 +331,9 @@ struct qpnp_hap {
 };
 
 static struct qpnp_hap *ghap;
+
+static int disable_haptics_refcnt;
+static DEFINE_SPINLOCK(disable_lock);
 
 /* helper to read a pmic register */
 static int qpnp_hap_read_reg(struct qpnp_hap *hap, u8 *data, u16 addr)
@@ -1597,6 +1601,30 @@ static int qpnp_hap_set(struct qpnp_hap *hap, int on)
 	return rc;
 }
 
+void qpnp_disable_haptics(bool disable)
+{
+	unsigned long flags;
+
+	spin_lock_irqsave(&disable_lock, flags);
+	if (disable)
+		disable_haptics_refcnt++;
+	else if (disable_haptics_refcnt > 0)
+		disable_haptics_refcnt--;
+	spin_unlock_irqrestore(&disable_lock, flags);
+}
+
+static bool is_haptics_disabled(void)
+{
+	unsigned long flags;
+	bool disable;
+
+	spin_lock_irqsave(&disable_lock, flags);
+	disable = disable_haptics_refcnt;
+	spin_unlock_irqrestore(&disable_lock, flags);
+
+	return disable;
+}
+
 static void qpnp_timed_enable_worker(struct work_struct *work)
 {
 	struct qpnp_hap *hap = container_of(work, struct qpnp_hap,
@@ -1609,6 +1637,9 @@ static void qpnp_timed_enable_worker(struct work_struct *work)
 
 	/* Vibrator already disabled */
 	if (!value && !hap->state)
+		return;
+
+	if (value && is_haptics_disabled())
 		return;
 
 	flush_work(&hap->work);
@@ -1651,7 +1682,7 @@ static void qpnp_hap_td_enable(struct timed_output_dev *dev, int value)
 	hap->td_value = value;
 	spin_unlock(&hap->td_lock);
 
-	schedule_work(&hap->td_work);
+	queue_work(hap->wq, &hap->td_work);
 }
 
 /* play pwm bytes */
@@ -2297,6 +2328,12 @@ static int qpnp_haptic_probe(struct spmi_device *spmi)
 	rc = qpnp_hap_config(hap);
 	if (rc) {
 		dev_err(&spmi->dev, "hap config failed\n");
+		return rc;
+	}
+
+	hap->wq = alloc_workqueue("qpnp_haptics", WQ_HIGHPRI, 0);
+	if (!hap->wq) {
+		dev_err(&spmi->dev, "Failed to allocate workqueue\n");
 		return rc;
 	}
 

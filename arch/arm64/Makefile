@@ -17,8 +17,8 @@ GZFLAGS		:=-9
 
 KBUILD_DEFCONFIG := defconfig
 
-ARM_ARCH_OPT := -mcpu=cortex-a57.cortex-a53+crypto+crc -mtune=cortex-a57.cortex-a53
-GEN_OPT_FLAGS := $(call cc-option,$(ARM_ARCH_OPT),-march=armv8-a+crypto+crc) \
+ARM_ARCH_OPT := -mcpu=cortex-a57.cortex-a53+crypto+crc+fp+simd -mtune=cortex-a57.cortex-a53
+GEN_OPT_FLAGS := $(call cc-option,$(ARM_ARCH_OPT),-march=armv8-a+crypto+crc+fp+simd) \
  -g0 \
  -DNDEBUG \
  -fomit-frame-pointer \
