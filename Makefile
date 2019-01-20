@@ -438,7 +438,6 @@ KBUILD_CFLAGS   := -Wall -Wundef -Wstrict-prototypes -Wno-trigraphs \
 		   -Wno-switch-bool \
 		   -Wno-multistatement-macros \
 		   -Wno-bool-operation -Wno-nonnull -Wno-switch-unreachable -Wno-format-truncation -Wno-format-overflow -Wno-duplicate-decl-specifier -Wno-memset-elt-size -Wno-int-in-bool-context \
-		   -mstrict-align \
 		   -mfix-cortex-a53-843419 -mfix-cortex-a53-835769 \
 		   $(GEN_OPT_FLAGS) \
 		   $(GRAPHITE) \
