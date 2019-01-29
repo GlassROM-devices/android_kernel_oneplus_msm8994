@@ -137,7 +137,7 @@ MODULE_PARM_DESC(pdesireaudio_static_mode, "Set PDesireAudio to static mode, so 
 void pdesireaudio_start(void) 
 {
 	if (!pdesireaudio_static_mode){
-		printk("Enable PDesireAudio");
+		pr_info("Enable PDesireAudio");
 		uhqa_mode_pdesireaudio = 1;
 	}
 }
@@ -145,7 +145,7 @@ void pdesireaudio_start(void)
 void pdesireaudio_remove(void) 
 {
 	if (!pdesireaudio_static_mode){
-		printk("Disable PDesireAudio");
+		pr_info("Disable PDesireAudio");
 		uhqa_mode_pdesireaudio = 0;
 	}
 } 
@@ -156,7 +156,7 @@ void pdesireaudio_init(void)
 		bool active;
 
 
-		printk("Re-Init PDesireAudio");
+		pr_info("Re-Init PDesireAudio");
 		if (!uhqa_mode_pdesireaudio)
 			active = false;
 		else
@@ -174,10 +174,10 @@ void pdesireaudio_init(void)
 void pdesireaudio_api_static_mode_control(bool enable)
 {
 	if(enable == true) {
-		printk("Set PDesireAudio to static mode");
+		pr_info("Set PDesireAudio to static mode");
 		pdesireaudio_static_mode = 1;
 	} else {
-		printk("Set PDesireAudio to dynamic mode");
+		pr_info("Set PDesireAudio to dynamic mode");
 		pdesireaudio_static_mode = 0;
 	}
 }
@@ -1317,7 +1317,10 @@ static int tomtom_config_compander(struct snd_soc_dapm_widget *w,
 		
 		/* PDesireAudio Compander Switch */
 		if (!uhqa_mode_pdesireaudio) {
-		
+			pr_debug("%s: PDesireAudio is enabled, do not enable compander\n",
+					__func__);
+			break;
+		}
 			/* Set compander Sample rate */
 			snd_soc_update_bits(codec,
 						TOMTOM_A_CDC_COMP0_FS_CFG + (comp * 8),
@@ -1332,7 +1335,6 @@ static int tomtom_config_compander(struct snd_soc_dapm_widget *w,
 					snd_soc_update_bits(codec,
 						TOMTOM_A_CDC_COMP0_B4_CTL + (comp * 8),
 						0x80, 0x80);
-				}
 			}
 			
 			/* Enable RX interpolation path compander clocks */
