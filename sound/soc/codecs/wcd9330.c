@@ -106,7 +106,7 @@ MODULE_PARM_DESC(cpe_debug_mode, "boot cpe in debug mode");
 static atomic_t kp_tomtom_priv;
 
 static struct notifier_block lcd_notifier_hook;
-static bool display_online=true;
+static bool display_online;
 
 static int lcd_notifier_call(struct notifier_block *this,
 		unsigned long event, void *data)
@@ -116,7 +116,7 @@ static int lcd_notifier_call(struct notifier_block *this,
 			display_online = true;
 			break;
 		case LCD_EVENT_OFF_END:
-			display_online = true;
+			display_online = false;
 			break;
 		default:
 			break;
