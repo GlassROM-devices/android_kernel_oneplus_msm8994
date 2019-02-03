@@ -2266,10 +2266,6 @@ free_bio_info:
 	for (i = 0; i < NR_PAGE_TYPE; i++)
 		kfree(sbi->write_io[i]);
 free_options:
-#ifdef CONFIG_QUOTA
-	for (i = 0; i < F2FS_MAXQUOTAS; i++)
-		kfree(sbi->s_qf_names[i]);
-#endif
 	kfree(options);
 free_sb_buf:
 	kfree(raw_super);
