@@ -63,6 +63,13 @@ static unsigned char *__struct_ptr(struct f2fs_sb_info *sbi, int struct_type)
 	return NULL;
 }
 
+static ssize_t dirty_segments_show(struct f2fs_attr *a,
+		struct f2fs_sb_info *sbi, char *buf)
+{
+	return snprintf(buf, PAGE_SIZE, "%llu\n",
+		(unsigned long long)(dirty_segments(sbi)));
+}
+
 static ssize_t lifetime_write_kbytes_show(struct f2fs_attr *a,
 		struct f2fs_sb_info *sbi, char *buf)
 {
@@ -86,6 +93,27 @@ static ssize_t f2fs_sbi_show(struct f2fs_attr *a,
 	if (!ptr)
 		return -EINVAL;
 
+	if (!strcmp(a->attr.name, "extension_list")) {
+		__u8 (*extlist)[F2FS_EXTENSION_LEN] =
+					sbi->raw_super->extension_list;
+		int cold_count = le32_to_cpu(sbi->raw_super->extension_count);
+		int hot_count = sbi->raw_super->hot_ext_count;
+		int len = 0, i;
+
+		len += snprintf(buf + len, PAGE_SIZE - len,
+						"cold file extenstion:\n");
+		for (i = 0; i < cold_count; i++)
+			len += snprintf(buf + len, PAGE_SIZE - len, "%s\n",
+								extlist[i]);
+
+		len += snprintf(buf + len, PAGE_SIZE - len,
+						"hot file extenstion:\n");
+		for (i = cold_count; i < cold_count + hot_count; i++)
+			len += snprintf(buf + len, PAGE_SIZE - len, "%s\n",
+								extlist[i]);
+		return len;
+	}
+
 	ui = (unsigned int *)(ptr + a->offset);
 
 	return snprintf(buf, PAGE_SIZE, "%u\n", *ui);
@@ -103,6 +131,41 @@ static ssize_t f2fs_sbi_store(struct f2fs_attr *a,
 	ptr = __struct_ptr(sbi, a->struct_type);
 	if (!ptr)
 		return -EINVAL;
+
+	if (!strcmp(a->attr.name, "extension_list")) {
+		const char *name = strim((char *)buf);
+		bool set = true, hot;
+
+		if (!strncmp(name, "[h]", 3))
+			hot = true;
+		else if (!strncmp(name, "[c]", 3))
+			hot = false;
+		else
+			return -EINVAL;
+
+		name += 3;
+
+		if (*name == '!') {
+			name++;
+			set = false;
+		}
+
+		if (strlen(name) >= F2FS_EXTENSION_LEN)
+			return -EINVAL;
+
+		down_write(&sbi->sb_lock);
+
+		ret = update_extension_list(sbi, name, hot, set);
+		if (ret)
+			goto out;
+
+		ret = f2fs_commit_super(sbi, false);
+		if (ret)
+			update_extension_list(sbi, name, hot, !set);
+out:
+		up_write(&sbi->sb_lock);
+		return ret ? ret : count;
+	}
 
 	ui = (unsigned int *)(ptr + a->offset);
 
@@ -124,6 +187,29 @@ static ssize_t f2fs_sbi_store(struct f2fs_attr *a,
 		spin_unlock(&sbi->stat_lock);
 		return count;
 	}
+
+	if (!strcmp(a->attr.name, "discard_granularity")) {
+		struct discard_cmd_control *dcc = SM_I(sbi)->dcc_info;
+		int i;
+
+		if (t == 0 || t > MAX_PLIST_NUM)
+			return -EINVAL;
+		if (t == *ui)
+			return count;
+
+		mutex_lock(&dcc->cmd_lock);
+		for (i = 0; i < MAX_PLIST_NUM; i++) {
+			if (i >= t - 1)
+				dcc->pend_list_tag[i] |= P_ACTIVE;
+			else
+				dcc->pend_list_tag[i] &= (~P_ACTIVE);
+		}
+		mutex_unlock(&dcc->cmd_lock);
+
+		*ui = t;
+		return count;
+	}
+
 	*ui = t;
 	return count;
 }
@@ -178,6 +264,7 @@ F2FS_RW_ATTR(GC_THREAD, f2fs_gc_kthread, gc_no_gc_sleep_time, no_gc_sleep_time);
 F2FS_RW_ATTR(GC_THREAD, f2fs_gc_kthread, gc_idle, gc_idle);
 F2FS_RW_ATTR(SM_INFO, f2fs_sm_info, reclaim_segments, rec_prefree_segments);
 F2FS_RW_ATTR(DCC_INFO, discard_cmd_control, max_small_discards, max_discards);
+F2FS_RW_ATTR(DCC_INFO, discard_cmd_control, discard_granularity, discard_granularity);
 F2FS_RW_ATTR(RESERVED_BLOCKS, f2fs_sb_info, reserved_blocks, reserved_blocks);
 F2FS_RW_ATTR(SM_INFO, f2fs_sm_info, batched_trim_sections, trim_sections);
 F2FS_RW_ATTR(SM_INFO, f2fs_sm_info, ipu_policy, ipu_policy);
@@ -191,10 +278,14 @@ F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, max_victim_search, max_victim_search);
 F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, dir_level, dir_level);
 F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, cp_interval, interval_time[CP_TIME]);
 F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, idle_interval, interval_time[REQ_TIME]);
+F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, readdir_ra, readdir_ra);
+F2FS_RW_ATTR(F2FS_SBI, f2fs_sb_info, gc_pin_file_thresh, gc_pin_file_threshold);
+F2FS_RW_ATTR(F2FS_SBI, f2fs_super_block, extension_list, extension_list);
 #ifdef CONFIG_F2FS_FAULT_INJECTION
 F2FS_RW_ATTR(FAULT_INFO_RATE, f2fs_fault_info, inject_rate, inject_rate);
 F2FS_RW_ATTR(FAULT_INFO_TYPE, f2fs_fault_info, inject_type, inject_type);
 #endif
+F2FS_GENERAL_RO_ATTR(dirty_segments);
 F2FS_GENERAL_RO_ATTR(lifetime_write_kbytes);
 
 #define ATTR_LIST(name) (&f2fs_attr_##name.attr)
@@ -205,6 +296,7 @@ static struct attribute *f2fs_attrs[] = {
 	ATTR_LIST(gc_idle),
 	ATTR_LIST(reclaim_segments),
 	ATTR_LIST(max_small_discards),
+	ATTR_LIST(discard_granularity),
 	ATTR_LIST(batched_trim_sections),
 	ATTR_LIST(ipu_policy),
 	ATTR_LIST(min_ipu_util),
@@ -217,10 +309,14 @@ static struct attribute *f2fs_attrs[] = {
 	ATTR_LIST(dirty_nats_ratio),
 	ATTR_LIST(cp_interval),
 	ATTR_LIST(idle_interval),
+	ATTR_LIST(readdir_ra),
+	ATTR_LIST(gc_pin_file_thresh),
+	ATTR_LIST(extension_list),
 #ifdef CONFIG_F2FS_FAULT_INJECTION
 	ATTR_LIST(inject_rate),
 	ATTR_LIST(inject_type),
 #endif
+	ATTR_LIST(dirty_segments),
 	ATTR_LIST(lifetime_write_kbytes),
 	ATTR_LIST(reserved_blocks),
 	NULL,

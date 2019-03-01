@@ -42,6 +42,7 @@ static struct kmem_cache *f2fs_inode_cachep;
 
 char *fault_name[FAULT_MAX] = {
 	[FAULT_KMALLOC]		= "kmalloc",
+	[FAULT_KVMALLOC]	= "kvmalloc",
 	[FAULT_PAGE_ALLOC]	= "page alloc",
 	[FAULT_ALLOC_NID]	= "alloc nid",
 	[FAULT_ORPHAN]		= "orphan",
@@ -152,7 +153,7 @@ void f2fs_msg(struct super_block *sb, const char *level, const char *fmt, ...)
 	va_start(args, fmt);
 	vaf.fmt = fmt;
 	vaf.va = &args;
-	printk("%sF2FS-fs (%s): %pV\n", level, sb->s_id, &vaf);
+	printk_ratelimited("%sF2FS-fs (%s): %pV\n", level, sb->s_id, &vaf);
 	va_end(args);
 }
 
@@ -416,22 +417,19 @@ static struct inode *f2fs_alloc_inode(struct super_block *sb)
 	init_once((void *) fi);
 
 	/* Initialize f2fs-specific inode info */
-	fi->vfs_inode.i_version = 1;
 	atomic_set(&fi->dirty_pages, 0);
 	fi->i_current_depth = 1;
-	fi->i_advise = 0;
 	init_rwsem(&fi->i_sem);
 	INIT_LIST_HEAD(&fi->dirty_list);
 	INIT_LIST_HEAD(&fi->gdirty_list);
+	INIT_LIST_HEAD(&fi->inmem_ilist);
 	INIT_LIST_HEAD(&fi->inmem_pages);
 	mutex_init(&fi->inmem_lock);
 	init_rwsem(&fi->dio_rwsem[READ]);
 	init_rwsem(&fi->dio_rwsem[WRITE]);
 	init_rwsem(&fi->i_mmap_sem);
+	init_rwsem(&fi->i_xattr_sem);
 
-#ifdef CONFIG_QUOTA
-	fi->i_reserved_quota = 0;
-#endif
 	/* Will be used by directory only */
 	fi->i_dir_level = F2FS_SB(sb)->dir_level;
 	return &fi->vfs_inode;
@@ -468,7 +466,6 @@ static int f2fs_drop_inode(struct inode *inode)
 
 			sb_end_intwrite(inode->i_sb);
 
-			fscrypt_put_encryption_info(inode, NULL);
 			spin_lock(&inode->i_lock);
 			atomic_dec(&inode->i_count);
 		}
@@ -594,7 +591,7 @@ static void f2fs_put_super(struct super_block *sb)
 	}
 
 	/* be sure to wait for any on-going discard commands */
-	f2fs_wait_discard_bios(sbi);
+	f2fs_wait_discard_bios(sbi, true);
 
 	if (f2fs_discard_en(sbi) && !sbi->discard_blks) {
 		struct cp_control cpc = {
@@ -684,6 +681,48 @@ static int f2fs_unfreeze(struct super_block *sb)
 	return 0;
 }
 
+#ifdef CONFIG_QUOTA
+static int f2fs_statfs_project(struct super_block *sb,
+				kprojid_t projid, struct kstatfs *buf)
+{
+	struct kqid qid;
+	struct dquot *dquot;
+	u64 limit;
+	u64 curblock;
+
+	qid = make_kqid_projid(projid);
+	dquot = dqget(sb, qid);
+	if (IS_ERR(dquot))
+		return PTR_ERR(dquot);
+	spin_lock(&dq_data_lock);
+
+	limit = (dquot->dq_dqb.dqb_bsoftlimit ?
+		 dquot->dq_dqb.dqb_bsoftlimit :
+		 dquot->dq_dqb.dqb_bhardlimit) >> sb->s_blocksize_bits;
+	if (limit && buf->f_blocks > limit) {
+		curblock = dquot->dq_dqb.dqb_curspace >> sb->s_blocksize_bits;
+		buf->f_blocks = limit;
+		buf->f_bfree = buf->f_bavail =
+			(buf->f_blocks > curblock) ?
+			 (buf->f_blocks - curblock) : 0;
+	}
+
+	limit = dquot->dq_dqb.dqb_isoftlimit ?
+		dquot->dq_dqb.dqb_isoftlimit :
+		dquot->dq_dqb.dqb_ihardlimit;
+	if (limit && buf->f_files > limit) {
+		buf->f_files = limit;
+		buf->f_ffree =
+			(buf->f_files > dquot->dq_dqb.dqb_curinodes) ?
+			 (buf->f_files - dquot->dq_dqb.dqb_curinodes) : 0;
+	}
+
+	spin_unlock(&dq_data_lock);
+	dqput(dquot);
+	return 0;
+}
+#endif
+
 static int f2fs_statfs(struct dentry *dentry, struct kstatfs *buf)
 {
 	struct super_block *sb = dentry->d_sb;
@@ -719,6 +758,12 @@ static int f2fs_statfs(struct dentry *dentry, struct kstatfs *buf)
 	buf->f_fsid.val[0] = (u32)id;
 	buf->f_fsid.val[1] = (u32)(id >> 32);
 
+#ifdef CONFIG_QUOTA
+	if (is_inode_flag_set(dentry->d_inode, FI_PROJ_INHERIT) &&
+			sb_has_quota_limits_enabled(sb, PRJQUOTA)) {
+		f2fs_statfs_project(sb, F2FS_I(dentry->d_inode)->i_projid, buf);
+	}
+#endif
 	return 0;
 }
 
@@ -883,7 +928,7 @@ static int f2fs_remount(struct super_block *sb, int *flags, char *data)
 		err = dquot_suspend(sb, -1);
 		if (err < 0)
 			goto restore_opts;
-	} else {
+	} else if (f2fs_readonly(sb) && !(*flags & MS_RDONLY)) {
 		/* dquot_resume needs RW */
 		sb->s_flags &= ~MS_RDONLY;
 		dquot_resume(sb, -1);
@@ -984,9 +1029,14 @@ static ssize_t f2fs_quota_read(struct super_block *sb, int type, char *data,
 	while (toread > 0) {
 		tocopy = min_t(unsigned long, sb->s_blocksize - offset, toread);
 repeat:
-		page = read_mapping_page(mapping, blkidx, NULL);
-		if (IS_ERR(page))
+		page = read_cache_page_gfp(mapping, blkidx, GFP_NOFS);
+		if (IS_ERR(page)) {
+			if (PTR_ERR(page) == -ENOMEM) {
+				congestion_wait(BLK_RW_ASYNC, HZ/50);
+				goto repeat;
+			}
 			return PTR_ERR(page);
+		}
 
 		lock_page(page);
 
@@ -1029,11 +1079,16 @@ static ssize_t f2fs_quota_write(struct super_block *sb, int type,
 	while (towrite > 0) {
 		tocopy = min_t(unsigned long, sb->s_blocksize - offset,
 								towrite);
-
+retry:
 		err = a_ops->write_begin(NULL, mapping, off, tocopy, 0,
 							&page, NULL);
-		if (unlikely(err))
+		if (unlikely(err)) {
+			if (err == -ENOMEM) {
+				congestion_wait(BLK_RW_ASYNC, HZ/50);
+				goto retry;
+			}
 			break;
+		}
 
 		kaddr = kmap_atomic(page);
 		memcpy(kaddr + offset, data, tocopy);
@@ -1051,7 +1106,6 @@ static ssize_t f2fs_quota_write(struct super_block *sb, int type,
 
 	if (len == towrite)
 		return err;
-	inode->i_version++;
 	inode->i_mtime = inode->i_ctime = current_time(inode);
 	f2fs_mark_inode_dirty_sync(inode, false);
 	return len - towrite;
@@ -1099,7 +1153,7 @@ static int f2fs_quota_on(struct super_block *sb, int type, int format_id,
 	struct inode *inode;
 	int err;
 
-	err = f2fs_quota_sync(sb, -1);
+	err = f2fs_quota_sync(sb, type);
 	if (err)
 		return err;
 
@@ -1127,7 +1181,7 @@ static int f2fs_quota_off(struct super_block *sb, int type)
 	if (!inode || !igrab(inode))
 		return dquot_quota_off(sb, type);
 
-	f2fs_quota_sync(sb, -1);
+	f2fs_quota_sync(sb, type);
 
 	err = dquot_quota_off(sb, type);
 	if (err)
@@ -1150,6 +1204,14 @@ static void f2fs_quota_off_umount(struct super_block *sb)
 	for (type = 0; type < MAXQUOTAS; type++)
 		f2fs_quota_off(sb, type);
 }
+
+#if 0	/* not support */
+static int f2fs_get_projid(struct inode *inode, kprojid_t *projid)
+{
+	*projid = F2FS_I(inode)->i_projid;
+	return 0;
+}
+#endif
 
 static const struct dquot_operations f2fs_quota_operations = {
 	.get_reserved_space = f2fs_get_reserved_space,
@@ -1223,13 +1285,8 @@ static const struct fscrypt_operations f2fs_cryptops = {
 	.key_prefix	= "f2fs:",
 	.get_context	= f2fs_get_context,
 	.set_context	= f2fs_set_context,
-	.is_encrypted	= f2fs_encrypted_inode,
 	.empty_dir	= f2fs_empty_dir,
 	.max_namelen	= f2fs_max_namelen,
-};
-#else
-static const struct fscrypt_operations f2fs_cryptops = {
-	.is_encrypted	= f2fs_encrypted_inode,
 };
 #endif
 
@@ -1303,12 +1360,11 @@ static int __f2fs_commit_super(struct buffer_head *bh,
 	lock_buffer(bh);
 	if (super)
 		memcpy(bh->b_data + F2FS_SUPER_OFFSET, super, sizeof(*super));
-	set_buffer_uptodate(bh);
 	set_buffer_dirty(bh);
 	unlock_buffer(bh);
 
 	/* it's rare case, we can do fua all the time */
-	return __sync_dirty_buffer(bh, WRITE_FLUSH_FUA);
+	return __sync_dirty_buffer(bh, WRITE_SYNC | WRITE_FLUSH_FUA);
 }
 
 static inline bool sanity_check_area_boundary(struct f2fs_sb_info *sbi,
@@ -1587,6 +1643,11 @@ static void init_sb_info(struct f2fs_sb_info *sbi)
 		for (j = HOT; j < NR_TEMP_TYPE; j++)
 			mutex_init(&sbi->wio_mutex[i][j]);
 	spin_lock_init(&sbi->cp_lock);
+
+	sbi->dirty_device = 0;
+	spin_lock_init(&sbi->dev_lock);
+
+	init_rwsem(&sbi->sb_lock);
 }
 
 static int init_percpu_info(struct f2fs_sb_info *sbi)
@@ -1627,14 +1688,15 @@ static int init_blkz_info(struct f2fs_sb_info *sbi, int devi)
 	if (nr_sectors & (bdev_zone_sectors(bdev) - 1))
 		FDEV(devi).nr_blkz++;
 
-	FDEV(devi).blkz_type = kmalloc(FDEV(devi).nr_blkz, GFP_KERNEL);
+	FDEV(devi).blkz_type = f2fs_kmalloc(sbi, FDEV(devi).nr_blkz,
+								GFP_KERNEL);
 	if (!FDEV(devi).blkz_type)
 		return -ENOMEM;
 
 #define F2FS_REPORT_NR_ZONES   4096
 
-	zones = kcalloc(F2FS_REPORT_NR_ZONES, sizeof(struct blk_zone),
-			GFP_KERNEL);
+	zones = f2fs_kzalloc(sbi, sizeof(struct blk_zone) *
+				F2FS_REPORT_NR_ZONES, GFP_KERNEL);
 	if (!zones)
 		return -ENOMEM;
 
@@ -1738,7 +1800,7 @@ int f2fs_commit_super(struct f2fs_sb_info *sbi, bool recover)
 	}
 
 	/* write back-up superblock first */
-	bh = sb_getblk(sbi->sb, sbi->valid_super_block ? 0: 1);
+	bh = sb_bread(sbi->sb, sbi->valid_super_block ? 0 : 1);
 	if (!bh)
 		return -EIO;
 	err = __f2fs_commit_super(bh, F2FS_RAW_SUPER(sbi));
@@ -1749,7 +1811,7 @@ int f2fs_commit_super(struct f2fs_sb_info *sbi, bool recover)
 		return err;
 
 	/* write current valid superblock */
-	bh = sb_getblk(sbi->sb, sbi->valid_super_block);
+	bh = sb_bread(sbi->sb, sbi->valid_super_block);
 	if (!bh)
 		return -EIO;
 	err = __f2fs_commit_super(bh, F2FS_RAW_SUPER(sbi));
@@ -1778,8 +1840,8 @@ static int f2fs_scan_devices(struct f2fs_sb_info *sbi)
 	 * Initialize multiple devices information, or single
 	 * zoned block device information.
 	 */
-	sbi->devs = kcalloc(max_devices, sizeof(struct f2fs_dev_info),
-				GFP_KERNEL);
+	sbi->devs = f2fs_kzalloc(sbi, sizeof(struct f2fs_dev_info) *
+						max_devices, GFP_KERNEL);
 	if (!sbi->devs)
 		return -ENOMEM;
 
@@ -1939,7 +2001,9 @@ try_onemore:
 #endif
 
 	sb->s_op = &f2fs_sops;
+#ifdef CONFIG_F2FS_FS_ENCRYPTION
 	sb->s_cop = &f2fs_cryptops;
+#endif
 	sb->s_xattr = f2fs_xattr_handlers;
 	sb->s_export_op = &f2fs_export_ops;
 	sb->s_magic = F2FS_SUPER_MAGIC;
@@ -1963,8 +2027,9 @@ try_onemore:
 		int n = (i == META) ? 1: NR_TEMP_TYPE;
 		int j;
 
-		sbi->write_io[i] = kmalloc(n * sizeof(struct f2fs_bio_info),
-								GFP_KERNEL);
+		sbi->write_io[i] = f2fs_kmalloc(sbi,
+					n * sizeof(struct f2fs_bio_info),
+					GFP_KERNEL);
 		if (!sbi->write_io[i]) {
 			err = -ENOMEM;
 			goto free_options;
@@ -1985,14 +2050,14 @@ try_onemore:
 
 	err = init_percpu_info(sbi);
 	if (err)
-		goto free_options;
+		goto free_bio_info;
 
 	if (F2FS_IO_SIZE(sbi) > 1) {
 		sbi->write_io_dummy =
 			mempool_create_page_pool(2 * (F2FS_IO_SIZE(sbi) - 1), 0);
 		if (!sbi->write_io_dummy) {
 			err = -ENOMEM;
-			goto free_options;
+			goto free_percpu;
 		}
 	}
 
@@ -2071,11 +2136,9 @@ try_onemore:
 		goto free_nm;
 	}
 
-	f2fs_join_shrinker(sbi);
-
 	err = f2fs_build_stats(sbi);
 	if (err)
-		goto free_nm;
+		goto free_node_inode;
 
 	/* if there are nt orphan nodes free them */
 	err = recover_orphan_inodes(sbi);
@@ -2087,7 +2150,7 @@ try_onemore:
 	if (IS_ERR(root)) {
 		f2fs_msg(sb, KERN_ERR, "Failed to read root inode");
 		err = PTR_ERR(root);
-		goto free_node_inode;
+		goto free_stats;
 	}
 	if (!S_ISDIR(root->i_mode) || !root->i_blocks || !root->i_size) {
 		iput(root);
@@ -2164,6 +2227,8 @@ skip_recovery:
 			sbi->valid_super_block ? 1 : 2, err);
 	}
 
+	f2fs_join_shrinker(sbi);
+
 	f2fs_msg(sbi->sb, KERN_NOTICE, "Mounted with checkpoint version = %llx",
 				cur_cp_version(F2FS_CKPT(sbi)));
 	f2fs_update_time(sbi, CP_TIME);
@@ -2176,21 +2241,12 @@ free_sysfs:
 free_root_inode:
 	dput(sb->s_root);
 	sb->s_root = NULL;
-free_node_inode:
-	truncate_inode_pages(NODE_MAPPING(sbi), 0);
-	mutex_lock(&sbi->umount_mutex);
-	release_ino_entry(sbi, true);
-	f2fs_leave_shrinker(sbi);
-	/*
-	 * Some dirty meta pages can be produced by recover_orphan_inodes()
-	 * failed by EIO. Then, iput(node_inode) can trigger balance_fs_bg()
-	 * followed by write_checkpoint() through f2fs_write_node_pages(), which
-	 * falls into an infinite loop in sync_meta_pages().
-	 */
-	truncate_inode_pages(META_MAPPING(sbi), 0);
-	iput(sbi->node_inode);
-	mutex_unlock(&sbi->umount_mutex);
+free_stats:
 	f2fs_destroy_stats(sbi);
+free_node_inode:
+	release_ino_entry(sbi, true);
+	truncate_inode_pages(NODE_MAPPING(sbi), 0);
+	iput(sbi->node_inode);
 free_nm:
 	destroy_node_manager(sbi);
 free_sm:
@@ -2204,10 +2260,12 @@ free_meta_inode:
 free_io_dummy:
 	if (sbi->write_io_dummy)
 		mempool_destroy(sbi->write_io_dummy);
-free_options:
+free_percpu:
+	destroy_percpu_info(sbi);
+free_bio_info:
 	for (i = 0; i < NR_PAGE_TYPE; i++)
 		kfree(sbi->write_io[i]);
-	destroy_percpu_info(sbi);
+free_options:
 	kfree(options);
 free_sb_buf:
 	kfree(raw_super);
@@ -2302,8 +2360,13 @@ static int __init init_f2fs_fs(void)
 	err = f2fs_create_root_stats();
 	if (err)
 		goto free_filesystem;
+	err = f2fs_init_post_read_processing();
+	if (err)
+		goto free_root_stats;
 	return 0;
 
+free_root_stats:
+	f2fs_destroy_root_stats();
 free_filesystem:
 	unregister_filesystem(&f2fs_fs_type);
 free_shrinker:
@@ -2325,6 +2388,7 @@ fail:
 
 static void __exit exit_f2fs_fs(void)
 {
+	f2fs_destroy_post_read_processing();
 	f2fs_destroy_root_stats();
 	unregister_filesystem(&f2fs_fs_type);
 	unregister_shrinker(&f2fs_shrinker_info);

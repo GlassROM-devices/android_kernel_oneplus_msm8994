@@ -25,7 +25,7 @@ bool f2fs_may_inline_data(struct inode *inode)
 	if (i_size_read(inode) > MAX_INLINE_DATA)
 		return false;
 
-	if (f2fs_encrypted_inode(inode) && S_ISREG(inode->i_mode))
+	if (f2fs_post_read_required(inode))
 		return false;
 
 	return true;
@@ -111,6 +111,7 @@ int f2fs_convert_inline_page(struct dnode_of_data *dn, struct page *page)
 {
 	struct f2fs_io_info fio = {
 		.sbi = F2FS_I_SB(dn->inode),
+		.ino = dn->inode->i_ino,
 		.type = DATA,
 		.op = REQ_OP_WRITE,
 		.op_flags = REQ_SYNC | REQ_NOIDLE | REQ_PRIO,
@@ -146,6 +147,7 @@ int f2fs_convert_inline_page(struct dnode_of_data *dn, struct page *page)
 
 	/* write data page to try to make data consistent */
 	set_page_writeback(page);
+	ClearPageError(page);
 	fio.old_blkaddr = dn->data_blkaddr;
 	set_inode_flag(dn->inode, FI_HOT_DATA);
 	write_data_page(dn, &fio);
@@ -210,6 +212,8 @@ int f2fs_write_inline_data(struct inode *inode, struct page *page)
 {
 	void *src_addr, *dst_addr;
 	struct dnode_of_data dn;
+	struct address_space *mapping = page_mapping(page);
+	unsigned long flags;
 	int err;
 
 	set_new_dnode(&dn, inode, NULL, NULL, 0);
@@ -230,6 +234,11 @@ int f2fs_write_inline_data(struct inode *inode, struct page *page)
 	memcpy(dst_addr, src_addr, MAX_INLINE_DATA);
 	kunmap_atomic(src_addr);
 	set_page_dirty(dn.inode_page);
+
+	spin_lock_irqsave(&mapping->tree_lock, flags);
+	radix_tree_tag_clear(&mapping->page_tree, page_index(page),
+			     PAGECACHE_TAG_DIRTY);
+	spin_unlock_irqrestore(&mapping->tree_lock, flags);
 
 	set_inode_flag(inode, FI_APPEND_WRITE);
 	set_inode_flag(inode, FI_DATA_EXIST);

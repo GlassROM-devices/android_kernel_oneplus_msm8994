@@ -22,6 +22,9 @@
 
 void f2fs_mark_inode_dirty_sync(struct inode *inode, bool sync)
 {
+	if (is_inode_flag_set(inode, FI_NEW_INODE))
+		return;
+
 	if (f2fs_inode_dirtied(inode, sync))
 		return;
 
@@ -43,8 +46,10 @@ void f2fs_set_inode_flags(struct inode *inode)
 		new_fl |= S_NOATIME;
 	if (flags & FS_DIRSYNC_FL)
 		new_fl |= S_DIRSYNC;
+	if (f2fs_encrypted_inode(inode))
+		new_fl |= S_ENCRYPTED;
 	set_mask_bits(&inode->i_flags,
-		S_SYNC|S_APPEND|S_IMMUTABLE|S_NOATIME|S_DIRSYNC, new_fl);
+		S_SYNC|S_APPEND|S_IMMUTABLE|S_NOATIME|S_DIRSYNC|S_ENCRYPTED, new_fl);
 }
 
 static void __get_inode_rdev(struct inode *inode, struct f2fs_inode *ri)
@@ -251,14 +256,15 @@ retry:
 	return inode;
 }
 
-int update_inode(struct inode *inode, struct page *node_page)
+void update_inode(struct inode *inode, struct page *node_page)
 {
 	struct f2fs_inode *ri;
 	struct extent_tree *et = F2FS_I(inode)->extent_tree;
 
-	f2fs_inode_synced(inode);
-
 	f2fs_wait_on_page_writeback(node_page, NODE, true);
+	set_page_dirty(node_page);
+
+	f2fs_inode_synced(inode);
 
 	ri = F2FS_INODE(node_page);
 
@@ -293,20 +299,17 @@ int update_inode(struct inode *inode, struct page *node_page)
 	ri->i_dir_level = F2FS_I(inode)->i_dir_level;
 
 	__set_inode_rdev(inode, ri);
-	set_cold_node(inode, node_page);
 
 	/* deleted inode */
 	if (inode->i_nlink == 0)
 		clear_inline_node(node_page);
 
-	return set_page_dirty(node_page);
 }
 
-int update_inode_page(struct inode *inode)
+void update_inode_page(struct inode *inode)
 {
 	struct f2fs_sb_info *sbi = F2FS_I_SB(inode);
 	struct page *node_page;
-	int ret = 0;
 retry:
 	node_page = get_node_page(sbi, inode->i_ino);
 	if (IS_ERR(node_page)) {
@@ -317,11 +320,10 @@ retry:
 		} else if (err != -ENOENT) {
 			f2fs_stop_checkpoint(sbi, false);
 		}
-		return 0;
+		return;
 	}
-	ret = update_inode(inode, node_page);
+	update_inode(inode, node_page);
 	f2fs_put_page(node_page, 1);
-	return ret;
 }
 
 int f2fs_write_inode(struct inode *inode, struct writeback_control *wbc)
@@ -377,6 +379,7 @@ void f2fs_evict_inode(struct inode *inode)
 
 	remove_ino_entry(sbi, inode->i_ino, APPEND_INO);
 	remove_ino_entry(sbi, inode->i_ino, UPDATE_INO);
+	remove_ino_entry(sbi, inode->i_ino, FLUSH_INO);
 
 	sb_start_intwrite(inode->i_sb);
 	set_inode_flag(inode, FI_NO_ALLOC);
@@ -416,6 +419,11 @@ no_delete:
 	stat_dec_inline_dir(inode);
 	stat_dec_inline_inode(inode);
 
+	if (likely(!is_set_ckpt_flags(sbi, CP_ERROR_FLAG)))
+		f2fs_bug_on(sbi, is_inode_flag_set(inode, FI_DIRTY_INODE));
+	else
+		f2fs_inode_synced(inode);
+
 	/* ino == 0, if f2fs_new_inode() was failed t*/
 	if (inode->i_ino)
 		invalidate_mapping_pages(NODE_MAPPING(sbi), inode->i_ino,
@@ -436,7 +444,7 @@ no_delete:
 			!exist_written_data(sbi, inode->i_ino, ORPHAN_INO));
 	}
 out_clear:
-	fscrypt_put_encryption_info(inode, NULL);
+	fscrypt_put_encryption_info(inode);
 	clear_inode(inode);
 }
 

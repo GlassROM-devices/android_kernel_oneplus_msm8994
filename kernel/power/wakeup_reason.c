@@ -48,7 +48,7 @@ static ssize_t last_resume_reason_show(struct kobject *kobj, struct kobj_attribu
 	struct irq_desc *desc;
 	spin_lock(&resume_reason_lock);
 	if (suspend_abort) {
-		buf_offset = sprintf(buf, "Abort: %s", abort_reason);
+		buf_offset = sprintf(buf, "Abort: %s\n", abort_reason);
 	} else {
 		for (irq_no = 0; irq_no < irqcount; irq_no++) {
 			desc = irq_to_desc(irq_list[irq_no]);

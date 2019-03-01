@@ -11,6 +11,7 @@
 #include <linux/fs.h>
 #include <linux/namei.h>
 #include <linux/f2fs_fs.h>
+#include <linux/sched.h>
 #include "f2fs.h"
 #include "node.h"
 #include "acl.h"
@@ -401,8 +402,6 @@ struct page *init_inode_metadata(struct inode *inode, struct inode *dir,
 		page = get_node_page(F2FS_I_SB(dir), inode->i_ino);
 		if (IS_ERR(page))
 			return page;
-
-		set_cold_node(inode, page);
 	}
 
 	if (new_name) {
@@ -706,9 +705,13 @@ void f2fs_delete_entry(struct f2fs_dir_entry *dentry, struct page *page,
 	struct	f2fs_dentry_block *dentry_blk;
 	unsigned int bit_pos;
 	int slots = GET_DENTRY_SLOTS(le16_to_cpu(dentry->name_len));
+	struct address_space *mapping = page_mapping(page);
+	unsigned long flags;
 	int i;
 
 	f2fs_update_time(F2FS_I_SB(dir), REQ_TIME);
+
+	add_ino_entry(F2FS_I_SB(dir), dir->i_ino, TRANS_DIR_INO);
 
 	if (f2fs_has_inline_dentry(dir))
 		return f2fs_delete_inline_entry(dentry, page, dir, inode);
@@ -736,6 +739,11 @@ void f2fs_delete_entry(struct f2fs_dir_entry *dentry, struct page *page,
 
 	if (bit_pos == NR_DENTRY_IN_BLOCK &&
 			!truncate_hole(dir, page->index, page->index + 1)) {
+		spin_lock_irqsave(&mapping->tree_lock, flags);
+		radix_tree_tag_clear(&mapping->page_tree, page_index(page),
+				     PAGECACHE_TAG_DIRTY);
+		spin_unlock_irqrestore(&mapping->tree_lock, flags);
+
 		clear_page_dirty_for_io(page);
 		ClearPagePrivate(page);
 		ClearPageUptodate(page);
@@ -791,6 +799,7 @@ int f2fs_fill_dentries(struct file *file, void *dirent, filldir_t filldir,
 	unsigned char d_type;
 	struct f2fs_dir_entry *de = NULL;
 	struct fscrypt_str de_name = FSTR_INIT(NULL, 0);
+	struct f2fs_sb_info *sbi = F2FS_I_SB(d->inode);
 	int over;
 
 	while (bit_pos < d->max) {
@@ -832,6 +841,8 @@ int f2fs_fill_dentries(struct file *file, void *dirent, filldir_t filldir,
 			file->f_pos += bit_pos - start_bit_pos;
 			return 1;
 		}
+		if (sbi->readdir_ra == 1)
+			ra_node_page(sbi, le32_to_cpu(de->ino));
 
 		bit_pos += GET_DENTRY_SLOTS(le16_to_cpu(de->name_len));
 	}
@@ -876,6 +887,14 @@ static int f2fs_readdir(struct file *file, void *dirent, filldir_t filldir)
 				min(npages - n, (pgoff_t)MAX_DIR_RA_PAGES));
 
 	for (; n < npages; n++) {
+
+		/* allow readdir() to be interrupted */
+		if (fatal_signal_pending(current)) {
+			err = -ERESTARTSYS;
+			goto out;
+		}
+		cond_resched();
+
 		dentry_page = get_lock_data_page(inode, n, false);
 		if (IS_ERR(dentry_page)) {
 			err = PTR_ERR(dentry_page);
